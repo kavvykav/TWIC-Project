@@ -9,3 +9,5 @@
 ## Restrictions
 1) No cloud databases due to vulnerabilities associated with it.
 2) The security of the system should not be based on the secrecy of its design.
+
+Suggest that for the first week, we add ideas and things to implement over here so it's plain as day to see and we can remember what to add.
