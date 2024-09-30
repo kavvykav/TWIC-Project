@@ -58,6 +58,8 @@ Alternative Flow 2:
 5. The fingerprint read does not match the fingerprint associated with the card.
 6. System denies entry through the checkpoint.
 
+![Sequence Diagram](./docs/diagrams/sequence-diagrams/AuthenticationSequence.png)
+
 ### Enrolling a New User
 
 Brief Description: A new worker needs to be given a role to access the areas required. The  
@@ -75,6 +77,8 @@ Basic Flow:
 6. The server sends the permissions to the required checkpoints.
 7. The user gets given a card.
 
+![Sequence Diagram](./docs/diagrams/sequence-diagrams/EnrollmentSequence.png)
+
 ### Updating User Profile
 
 Brief Description: From time to time, user roles and ports will need to be changed. The server  
@@ -88,6 +92,8 @@ Basic Flow:
 2. The server manager will input the desired changes into their UI.
 3. The database will be updated with the user's new role/permissions.
 4. The server updates the permissions for the required checkpoints.
+
+![Sequence Diagram](./docs/diagrams/sequence-diagrams/UpdateRoleSequence.png)
 
 ## Restrictions
 
