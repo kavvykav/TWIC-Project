@@ -29,55 +29,65 @@
 ## Use Cases
 
 ### Authenticating a User At Checkpoint
+
 Brief Description: A worker will need to authenticate himself to gain access to an area on the port.  
-There will be two layers of authentication: a biometric scanner (fingerprint sensor) and a card reader.  
+There will be two layers of authentication: a biometric scanner (fingerprint sensor) and a card reader.
 
-Primary Actor: Worker  
+Primary Actor: Worker
 
-Basic Flow:  
+Basic Flow:
+
 1. User scans their card on the card reader.
 2. Card is validated by the system.
 3. System prompts user to scan fingerprint.
 4. User scans their fingerprint.
 5. System allows user through the checkpoint.
 
-Alternative Flow 1:  
+Alternative Flow 1:
+
 1. User scans their card on the card reader.
 2. User is deemed to not have the required role as per the data on the card.
 3. System denies user entry through the checkpoint.
 
 Alternative Flow 2:
-1. User scans their card on the card reader. 
-2. Card is validated by the system.          
-3. System prompts user to scan fingerprint.  
-4. User scans their fingerprint.             
+
+1. User scans their card on the card reader.
+2. Card is validated by the system.
+3. System prompts user to scan fingerprint.
+4. User scans their fingerprint.
 5. The fingerprint read does not match the fingerprint associated with the card.
 6. System denies entry through the checkpoint.
 
 ### Enrolling a New User
+
 Brief Description: A new worker needs to be given a role to access the areas required. The  
-server manager is in charge of adding new users.  
+server manager is in charge of adding new users.
 
-Precondition: The server manager is already logged in to the server.  
+Precondition: The server manager is already logged in to the server.
 
-Basic Flow:  
+Basic Flow:
+
 1. The server manager collects information (name, birthday, etc) from the new user and creates a profile in the system.
 2. The user will specify the ports they wish to be registered to.
 3. The server manager decides the role that is to be assigned to the user.
 4. The server manager reads the fingerprint from the new user.
-5. The fingerprint is added into the system.
-6. The user gets given a card.
+5. The fingerprint and other information is added into the system.
+6. The server sends the permissions to the required checkpoints.
+7. The user gets given a card.
 
 ### Updating User Profile
+
 Brief Description: From time to time, user roles and ports will need to be changed. The server  
 manager is in charge of this.
 
-Precondition: The server manager is already logged in to the server.   
+Precondition: The server manager is already logged in to the server.
 
-Basic Flow:  
+Basic Flow:
+
 1. The server manager will load a user's profile.
 2. The server manager will input the desired changes into their UI.
 3. The database will be updated with the user's new role/permissions.
+4. The server updates the permissions for the required checkpoints.
 
 ## Restrictions
 
