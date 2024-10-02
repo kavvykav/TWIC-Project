@@ -3,19 +3,26 @@
 ## Requirements Analysis
 
 1. The system must allow a worker past if he/she passes both authentication checks.
-2. The system must deny a worker past the checkpoint if he/she fails an authentication check.
-3. The system must use two factor authentication.
-4. The system must have a fingerprint scanner.
-5. The system must use a card for user authentication.
-6. A server is needed to host a secure database of workers and their roles in the system.
-7. The role of each user should determine their access to certain resources.
-8. The biometric data of each registered worker will be stored locally at the port.
-9. Data should not be stored in plaintext.
-10. The port will keep logs of entries at all checkpoints.
-11. Each checkpoint should be configurable to allow access only to those who need it.
-12. The system must default to restricting access should an authentication mechanism fail.
-13. The server should be able to get entry logs and register new users to each port when needed.
-14. The server should be protected by password authentication so only those authorized can use it.
+2. The system must deny a worker past the checkpoint if he/she fails  
+   an authentication check.
+3. The system must use two factor authentication using a fingerprint  
+   scanner and a card reader.
+4. The system must store the data of each registered user, including biometric  
+   data, port of registry and role.
+5. The role of each user should determine their access through checkpoints.
+6. Confidentiality and integrity shall be preserved with worker data,  
+   including biometric data, role data and port of registry.
+7. The port will keep logs of entries and entry attempts showing the timestamp
+   in UTC, the name and role of the worker, and whether access was granted,  
+   at all checkpoints.
+8. Each checkpoint should be configurable to allow access only to those who  
+   need it.
+9. The system must default to restricting access should an authentication  
+   mechanism fail.
+10. The system should be able to compile entry logs and register new users to  
+    each port when needed.
+11. The system must be such that only those authorized to change worker roles  
+    are able to do so.
 
 ## User Categories
 
