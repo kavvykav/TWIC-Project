@@ -27,12 +27,10 @@
 
 ## User Categories
 
-- Server manager: Is responsible for registering new users to ports and can request log data from a port. Has access to the central server.
-- Port manager: Is responsible for the logs of all checkpoints and registering new workers to the port. Has access to the port logs and port user data.
-- Local worker: Is an employee at their respective port and spends all day working there. Has access to what is needed for their job.
-- Ship/train worker: Enters and leaves ports to deliver goods. Has access to enter and leave the port.
-- Technician: Maintains the infrastructure of the port. Has access to resources that the port uses to function.
-- Janitor/maintenance: Is responsible for maintaining the port. Has access to any part of the port that does not contain sensitive data or risks safety.
+![Roles](./docs/diagrams/roles.png)
+
+[!IMPORTANT]
+Note that only TWIC administators will be able to manipulate roles, and only TWIC administators and Port Managers will be able to access Port data, with the Port manager being able to view data for their respective port.
 
 ## Use Cases
 
