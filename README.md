@@ -9,7 +9,8 @@
    scanner and a card reader.
 4. The system must store the data of each registered user, including biometric  
    data, port of registry and role.
-5. The role of each user should determine their access through checkpoints.
+5. The role of each user in the respective port should determine their  
+   access through checkpoints.
 6. Confidentiality and integrity shall be preserved with worker data,  
    including biometric data, role data and port of registry.
 7. The port will keep logs of entries and entry attempts showing the timestamp
