@@ -27,7 +27,7 @@
 
 ## User Categories
 
-![Roles](./docs/diagrams/roles.png)
+![Roles](./docs/diagrams/Roles.png)
 
 > [!IMPORTANT]
 > Note that only TWIC administators will be able to manipulate roles, and only  
