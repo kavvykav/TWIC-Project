@@ -13,7 +13,7 @@
    access through checkpoints.
 6. Confidentiality and integrity shall be preserved with worker data,  
    including biometric data, role data and port of registry.
-7. The port will keep logs of entries and entry attempts showing the timestamp
+7. The port will keep logs of entries and entry attempts showing the timestamp  
    in UTC, the name and role of the worker, and whether access was granted,  
    at all checkpoints.
 8. Each checkpoint should be configurable to allow access only to those who  
