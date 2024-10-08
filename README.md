@@ -100,6 +100,31 @@ Basic Flow:
 
 ![Sequence Diagram](./docs/diagrams/sequence-diagrams/UpdateRoleSequence.png)
 
+## System Architecture
+
+For our TWIC Access Control system, we opted to use a distributed architecture,  
+rather than a centralized architecture. While a centralized architecture would  
+work fine for the requirements of the system, the performance would diminish,  
+due to network traffic and overhead with encrypting and decrypting the data that  
+can instead be stored locally. Our design would still require some security principles  
+since worker data will need to be sent to the respective checkpoints when a new  
+worker is enrolled or if a worker's role and port information is updated. This  
+design ensures security (i.e. each checkpoint's disk will be encrypted), and the  
+authentication will be performed locally. This will lower the likelihood of  
+workers being annoyed with the system, and will increase overall usability. A  
+totally local system (i.e. each checkpoint has all worker information) would have  
+the best performance, however, it would get quite costly as each checkpoint would  
+require a lot of disk space. We believe that this design allows for the best of both  
+world between a completely localized versus centralized system.
+
+TWIC administrators will be able to manage worker roles and ports, through sufficient  
+authentication. Two factor authentication will be used to verify that nobody who  
+is not a TWIC Administrator can manipulate worker role and port information. Additionally  
+this information cannot be changed at the checkpoint level, it must be done from the  
+server level.
+
+![Deployment Diagram](./docs/diagrams/Deployment.png)
+
 ## Restrictions
 
 1. No cloud databases due to vulnerabilities associated with it.
