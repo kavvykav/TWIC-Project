@@ -1,10 +1,10 @@
 use std::sync::mpsc::{Sender, Receiver};
 
 pub fn receive_values(rx: Receiver<String>, tx: Sender<String>) {
-    let id = [101, 95, 43, 48, 86];
-    let mut count: u16 = 0;
-    let mut found = false;
-    let fingers:[i32;5] = [4,2,3,1,6];
+    let id = [101, 95, 43, 48, 86]; //List of 'IDS'
+    let mut count: u16 = 0; //Count number of attempts
+    let mut found = false; //Found ID (essentially the finger variable for person.rs but didn't want another finger variable with fingers)
+    let fingers:[i32;5] = [4,2,3,1,6]; //List of 'Finger IDs'
 
     for received in rx {
         if !found{
@@ -21,7 +21,7 @@ pub fn receive_values(rx: Receiver<String>, tx: Sender<String>) {
                 if card_id == i {
                     println!("Card recognized, please use fingerprint scanner.");
                     // Send back a message to person.rs
-                    tx.send(String::from("0")).unwrap();
+                    tx.send(String::from("0")).unwrap(); //Found!
                     found = true;
                 }
             }
@@ -31,11 +31,11 @@ pub fn receive_values(rx: Receiver<String>, tx: Sender<String>) {
                 count += 1;
                 if count >= 4 {
                     println!("Too many attempts. Please contact the main office.");
-                    tx.send(String::from("1")).unwrap();
+                    tx.send(String::from("1")).unwrap();//They tried too much kill
                     break;
                 }
                 else{
-                    tx.send(String::from("2")).unwrap();
+                    tx.send(String::from("2")).unwrap();//Keep receiving inputs
                 }
             }
 
@@ -55,9 +55,11 @@ pub fn receive_values(rx: Receiver<String>, tx: Sender<String>) {
                     tx.send(String::from("5")).unwrap();
                     break;
                 }
+                //Need to add more here for if finger isn't good
             }
 
         }
 
     }
 }
+
