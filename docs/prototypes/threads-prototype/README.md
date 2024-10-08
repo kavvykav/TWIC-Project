@@ -10,6 +10,7 @@ Currently we have communication between two threads, sending and reciving workin
 
 #### Future Work
 * Clean-up code
+* Add the ability for fingerprint error
 * Add more error handling
 * Add the ability for fingerprint and ID data to be on a database
 * Add the ability to communicate with database
