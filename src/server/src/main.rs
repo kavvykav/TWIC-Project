@@ -1,88 +1,88 @@
 use std::collections::HashMap;
-use std::io::{Read};  // Removed Write import
-use std::net::{TcpListener, TcpStream, SocketAddr};
+use std::io::Write;
+use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};
 use std::thread;
+use rand::Rng;
+use std::time::Duration;
 
 const SERVER_ADDR: &str = "127.0.0.1:7878";
 
-// Struct to represent each connected client
 #[derive(Clone)]
+#[allow(dead_code)] // surpress warnings for unread fields
 struct Client {
     id: usize,
-    stream: Arc<Mutex<TcpStream>>, // Stream is part of the struct
+    stream: Arc<Mutex<TcpStream>>,
 }
 
 fn handle_client(
-    client: Client, // Accept the whole client struct
-    clients: Arc<Mutex<HashMap<SocketAddr, Client>>>,
+    stream: Arc<Mutex<TcpStream>>,
+    client_id: usize,
+    clients: Arc<Mutex<HashMap<usize, Client>>>,
 ) {
-    let addr = client.stream.lock().unwrap().peer_addr().unwrap();  // Access stream and its peer_addr
-    println!("Client {} connected from {}", client.id, addr);
+    println!("Client {} connected", client_id);
+    let send_stream = Arc::clone(&stream);
 
-    let mut buffer = [0; 512];
+    // Thread for sending random numbers to the client
+    thread::spawn(move || {
+        let mut rng = rand::thread_rng();
+        loop {
+            let random_number = rng.gen_range(1..=100);
+            let message = format!("Random number: {}\n", random_number);
 
-    loop {
-        match client.stream.lock().unwrap().read(&mut buffer) {
-            Ok(0) => {
-                println!("Client {} disconnected", client.id);
-                break;
-            }
-            Ok(n) => {
-                let message = String::from_utf8_lossy(&buffer[..n]);
-                println!("Received from client {}: {}", client.id, message);
+            // Attempt to send the random number to the client
+            match send_stream.lock().unwrap().write(message.as_bytes()) {
+                Ok(_) => {
 
-                // Here you could process the message or forward it to another client
+                }
+                Err(e) => {
+                    if e.kind() == std::io::ErrorKind::BrokenPipe || e.kind() == std::io::ErrorKind::ConnectionReset{
+                        // Remove the client from the active list on disconnect
+                        clients.lock().unwrap().remove(&client_id);
+                        println!("Client {} removed from active list", client_id);
+                    } else {
+                        eprintln!("Failed to send message to the client: {}", e);
+                        break;
+                    }
+                }
             }
-            Err(e) => {
-                eprintln!("Failed to read from client {}: {}", client.id, e);
-                break;
-            }
+            thread::sleep(Duration::from_secs(1));
         }
-    }
+    });
 
-    // Remove client from active list on disconnect
-    let mut clients = clients.lock().unwrap();
-    clients.remove(&addr); // Remove based on client address
-}
+} 
 
 fn main() {
     let listener = TcpListener::bind(SERVER_ADDR).expect("Failed to bind address");
     println!("Server listening on {}", SERVER_ADDR);
 
-    let clients: Arc<Mutex<HashMap<SocketAddr, Client>>> = Arc::new(Mutex::new(HashMap::new()));
+    let target = 0;
+    let clients: Arc<Mutex<HashMap<usize, Client>>> = Arc::new(Mutex::new(HashMap::new()));
     let mut client_id_counter = 0;
 
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
-                let addr = stream.peer_addr().unwrap();
-                let clients_clone = Arc::clone(&clients);
-                let mut clients = clients.lock().unwrap();
+                let client_id = client_id_counter;
+                client_id_counter += 1;
 
-                // Check if the client is already connected (by IP:port)
-                let _client_id = if let Some(existing_client) = clients.get(&addr) {
-                    existing_client.clone().id  // Clone the client and access its id
-                } else {
-                    // If the client is new, assign a new ID
-                    client_id_counter += 1;
-                    clients.insert(
-                        addr,
-                        Client {
-                            id: client_id_counter,
-                            stream: Arc::new(Mutex::new(stream.try_clone().unwrap())),
-                        },
-                    );
-                    client_id_counter
-                };
+                let stream = Arc::new(Mutex::new(stream));
+                let clients = Arc::clone(&clients);
 
-                let client = clients.get(&addr).unwrap().clone(); // Get the client from the map
-               
+                // Register the new client
+                clients.lock().unwrap().insert(
+                    client_id,
+                    Client {
+                        id: client_id,
+                        stream: Arc::clone(&stream),
+                    },
+                );
 
-                // Handle each client in a new thread
-                thread::spawn(move || handle_client(client, clients_clone));
+                // Spawn a thread to handle the client
+                thread::spawn(move || handle_client(stream, target, clients));
             }
             Err(e) => eprintln!("Failed to accept connection: {}", e),
         }
     }
 }
+
