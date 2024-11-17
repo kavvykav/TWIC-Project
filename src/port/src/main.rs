@@ -7,6 +7,12 @@ use std::thread;
 
 fn main() {
 
+    // Start the database updater thread
+    let message_handler = thread::spawn(move || { 
+        let _ = client::start_client();
+    });
+    message_handler.join().unwrap();
+
     loop {
         println!("---------------------------------------------");
         // Create channels for two-way communication
@@ -23,13 +29,7 @@ fn main() {
             machine::receive_values(rx1, tx2);
         });
 
-        // Database Updater
-        let message_handler = thread::spawn(move || {
-            let _ = client::start_client();
-        });
-
         sender.join().unwrap();
         receiver.join().unwrap();
-        message_handler.join().unwrap();
     }
 }
