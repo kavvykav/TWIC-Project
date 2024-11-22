@@ -1,0 +1,28 @@
+@startuml
+actor       Employee
+participant Checkpoint
+participant Server
+database    Database
+Employee -> Checkpoint: Scan card
+Checkpoint -> Server: authenticate_employee_id_request
+Server -> Database: employee_data_request
+alt Employee in system
+Database -> Server: employee_data_response
+Server -> Checkpoint: authenticate_employee_id_response
+Checkpoint -> Employee: Prompt for fingerprint
+Employee -> Checkpoint: Scan fingerprint
+Checkpoint -> Server: authenticate_employee_fingerprint_request
+Server -> Server: Validate employee fingerprint
+alt Valid fingerprint
+Server -> Checkpoint: authenticate_employee_fingerprint_response
+Checkpoint -> Employee: Allow access
+else
+Server -> Checkpoint: access_denied
+Checkpoint -> Employee: Deny access
+end
+else
+Database-> Server: invalid_employee_id
+Server -> Checkpoint: access_denied
+Checkpoint -> Employee: Deny access
+end
+@enduml

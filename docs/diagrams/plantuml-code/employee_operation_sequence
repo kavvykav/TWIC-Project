@@ -1,0 +1,19 @@
+@startuml
+actor       Manager
+participant Server
+database    Database
+Manager -> Server: Select employee operation
+alt add an employee
+Server -> Database: add_employee
+else update an employee
+Server -> Database: update_employee
+else remove an employee
+Server -> Database: remove_employee
+end
+Database -> Server: employee_operation_response
+alt is_successful
+Server -> Manager: Success message
+else
+Server -> Manager: Error message
+end
+@enduml
