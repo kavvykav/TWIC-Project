@@ -1,14 +1,16 @@
 @startuml
 actor       Manager
-participant Server
-database    Database
+participant PortServer as Server
+database    CentralDatabase as Database
 Manager -> Server: Select employee operation
 alt add an employee
 Server -> Database: add_employee
 else update an employee
 Server -> Database: update_employee
+Database -> Server: update_servers
 else remove an employee
 Server -> Database: remove_employee
+Database -> Server: update_servers
 end
 Database -> Server: employee_operation_response
 alt is_successful
