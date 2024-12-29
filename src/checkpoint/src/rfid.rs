@@ -19,7 +19,7 @@ pub fn read_rfid(port_name: &str, baud_rate: u32) -> Result<String, String> {
         parity: Parity::None,
         stop_bits: StopBits::One,
         flow_control: FlowControl::None,
-        timeout: Duration::from_secs(1), // Adjust timeout as needed
+        timeout: Duration::from_secs(10), // Adjust timeout as needed
     };
 
     // Open the serial port

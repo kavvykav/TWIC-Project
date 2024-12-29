@@ -10,7 +10,7 @@ pub fn capture_fingerprint(port_name: &str, baud_rate: u32) -> Result<Vec<u8>, S
         parity: Parity::None,
         stop_bits: StopBits::One,
         flow_control: FlowControl::None,
-        timeout: Duration::from_secs(1),
+        timeout: Duration::from_secs(10),
     };
 
     let mut port = serialport::open_with_settings(port_name, &settings)
