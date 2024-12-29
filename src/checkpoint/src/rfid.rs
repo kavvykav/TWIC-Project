@@ -1,5 +1,5 @@
-use serialport::prelude::*;
-use std::io::{self, Write};
+use serialport::{self, DataBits, Parity, StopBits, FlowControl};
+use std::io::{Write};
 use std::time::Duration;
 
 /// Reads RFID data from the RFID module connected via serial port.
@@ -12,24 +12,19 @@ use std::time::Duration;
 /// - `Ok(String)`: The RFID tag ID as a string.
 /// - `Err(String)`: An error message if something goes wrong.
 pub fn read_rfid(port_name: &str, baud_rate: u32) -> Result<String, String> {
-    // Configure the serial port
-    let settings = SerialPortSettings {
-        baud_rate,
-        data_bits: DataBits::Eight,
-        parity: Parity::None,
-        stop_bits: StopBits::One,
-        flow_control: FlowControl::None,
-        timeout: Duration::from_secs(10), // Adjust timeout as needed
-    };
-
-    // Open the serial port
-    let mut port = serialport::open_with_settings(port_name, &settings)
+    // Open the serial port and configure it
+    let mut port = serialport::new(port_name, baud_rate)
+        .timeout(Duration::from_secs(10)) // Timeout after 10 seconds
+        .data_bits(DataBits::Eight)
+        .parity(Parity::None)
+        .stop_bits(StopBits::One)
+        .flow_control(FlowControl::None)
+        .open()
         .map_err(|e| format!("Failed to open serial port: {}", e))?;
 
     println!("Connected to RFID reader on {}", port_name);
 
-    // Send a command to the RFID reader (optional, depends on the module)
-    // Example: Sending a "read RFID tag" command (modify for your module)
+    // Send a command to the RFID reader (optional, depends on your module)
     let read_command: [u8; 2] = [0x02, 0x20]; // Replace with actual command for your module
     port.write_all(&read_command)
         .map_err(|e| format!("Failed to send read command: {}", e))?;
@@ -38,7 +33,7 @@ pub fn read_rfid(port_name: &str, baud_rate: u32) -> Result<String, String> {
     // Wait and read RFID data
     let mut buffer = vec![0; 128]; // Adjust size based on expected tag length
     let bytes_read = port
-        .read(buffer.as_mut_slice())
+        .read(&mut buffer)
         .map_err(|e| format!("Failed to read RFID data: {}", e))?;
 
     // Parse the RFID data
