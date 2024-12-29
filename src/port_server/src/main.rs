@@ -1,15 +1,15 @@
-use std::collections::HashMap;
-use std::io::Write;
-use std::net::{TcpListener, TcpStream};
-use std::sync::{Arc, Mutex};
-use std::thread;
-use rand::Rng;
-use std::time::Duration;
-
-const SERVER_ADDR: &str = "127.0.0.1:7878";
+use ctrlc;
+use std::{
+    collections::HashMap,
+    io::{BufRead, BufReader, Write},
+    net::{TcpListener, TcpStream},
+    sync::atomic::{AtomicBool, Ordering},
+    sync::{Arc, Mutex},
+    thread,
+    time::Duration,
+};
 
 #[derive(Clone)]
-#[allow(dead_code)] // surpress warnings for unread fields
 struct Client {
     id: usize,
     stream: Arc<Mutex<TcpStream>>,
@@ -19,57 +19,71 @@ fn handle_client(
     stream: Arc<Mutex<TcpStream>>,
     client_id: usize,
     clients: Arc<Mutex<HashMap<usize, Client>>>,
+    running: Arc<AtomicBool>,
 ) {
     println!("Client {} connected", client_id);
-    let send_stream = Arc::clone(&stream);
 
-    // Thread for sending random numbers to the client
-    thread::spawn(move || {
-        let mut rng = rand::thread_rng();
-        loop {
-            let random_number = rng.gen_range(1..=100);
-            let message = format!("Random number: {}\n", random_number);
+    let mut reader = BufReader::new(stream.lock().unwrap().try_clone().unwrap());
+    let mut buffer = String::new();
 
-            // Attempt to send the random number to the client
-            match send_stream.lock().unwrap().write(message.as_bytes()) {
-                Ok(_) => {
-
-                }
-                Err(e) => {
-                    if e.kind() == std::io::ErrorKind::BrokenPipe || e.kind() == std::io::ErrorKind::ConnectionReset{
-                        // Remove the client from the active list on disconnect
-                        clients.lock().unwrap().remove(&client_id);
-                        println!("Client {} removed from active list", client_id);
-                    } else {
-                        eprintln!("Failed to send message to the client: {}", e);
-                        break;
-                    }
-                }
+    while running.load(Ordering::SeqCst) {
+        buffer.clear();
+        match reader.read_line(&mut buffer) {
+            Ok(0) => {
+                println!("Client {} disconnected", client_id);
+                clients.lock().unwrap().remove(&client_id);
+                break;
             }
-            thread::sleep(Duration::from_secs(1));
+            Ok(_) => {
+                println!("Client {} sent: {}", client_id, buffer.trim());
+                let response = format!("Echo: {}\n", buffer.trim());
+                let _ = stream.lock().unwrap().write_all(response.as_bytes());
+            }
+            Err(e) => {
+                eprintln!("Error reading from client {}: {}", client_id, e);
+                break;
+            }
         }
-    });
+    }
 
-} 
+    println!("Shutting down thread for client {}", client_id);
+}
 
 fn main() {
+    const SERVER_ADDR: &str = "127.0.0.1:8080";
+
+    // Bind the TCP listener
     let listener = TcpListener::bind(SERVER_ADDR).expect("Failed to bind address");
+    listener
+        .set_nonblocking(true)
+        .expect("Cannot set non-blocking mode");
     println!("Server listening on {}", SERVER_ADDR);
 
-    let target = 0;
+    // Shared data structures
     let clients: Arc<Mutex<HashMap<usize, Client>>> = Arc::new(Mutex::new(HashMap::new()));
+    let running = Arc::new(AtomicBool::new(true));
+    let running_clone = Arc::clone(&running);
+
+    // Handle Ctrl+C for graceful shutdown
+    ctrlc::set_handler(move || {
+        println!("\nShutting down server...");
+        running_clone.store(false, Ordering::SeqCst);
+    })
+    .expect("Error setting Ctrl-C handler");
+
     let mut client_id_counter = 0;
 
-    for stream in listener.incoming() {
-        match stream {
-            Ok(stream) => {
+    // Main loop
+    while running.load(Ordering::SeqCst) {
+        match listener.accept() {
+            Ok((stream, _)) => {
                 let client_id = client_id_counter;
                 client_id_counter += 1;
 
                 let stream = Arc::new(Mutex::new(stream));
                 let clients = Arc::clone(&clients);
+                let running = Arc::clone(&running);
 
-                // Register the new client
                 clients.lock().unwrap().insert(
                     client_id,
                     Client {
@@ -78,11 +92,30 @@ fn main() {
                     },
                 );
 
-                // Spawn a thread to handle the client
-                thread::spawn(move || handle_client(stream, target, clients));
+                thread::spawn(move || handle_client(stream, client_id, clients, running));
             }
-            Err(e) => eprintln!("Failed to accept connection: {}", e),
+            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                // No incoming connections; sleep briefly to avoid busy-waiting
+                thread::sleep(Duration::from_millis(100));
+            }
+            Err(e) => {
+                eprintln!("Error accepting connection: {}", e);
+                break;
+            }
         }
     }
-}
 
+    // Cleanup before exiting
+    println!("Closing all client connections...");
+    let clients = clients.lock().unwrap();
+    for (id, client) in clients.iter() {
+        println!("Closing connection for client {}", id);
+        let _ = client
+            .stream
+            .lock()
+            .unwrap()
+            .shutdown(std::net::Shutdown::Both);
+    }
+
+    println!("Server shut down gracefully.");
+}
