@@ -8,11 +8,22 @@ use std::{
     thread,
     time::Duration,
 };
-
+// NOTE: ID functionality not done. Must be assigned from database during initialization
+// realistically a one-time assignment
 #[derive(Clone)]
 struct Client {
     id: usize,
     stream: Arc<Mutex<TcpStream>>,
+}
+
+// Function that handles timeouts for TCP connections
+fn set_stream_timeout(stream: &std::net::TcpStream, duration: Duration) {
+    stream
+        .set_read_timeout(Some(duration))
+        .expect("Failed to set read timeout");
+    stream
+        .set_write_timeout(Some(duration))
+        .expect("Failed to set write timeout");
 }
 
 fn handle_client(
@@ -51,8 +62,6 @@ fn handle_client(
 
 fn main() {
     const SERVER_ADDR: &str = "127.0.0.1:8080";
-
-    // Bind the TCP listener
     let listener = TcpListener::bind(SERVER_ADDR).expect("Failed to bind address");
     listener
         .set_nonblocking(true)
@@ -69,18 +78,29 @@ fn main() {
         println!("\nShutting down server...");
         running_clone.store(false, Ordering::SeqCst);
     })
-    .expect("Error setting Ctrl-C handler");
+    .expect("Error setting Ctrl+C handler");
 
     let mut client_id_counter = 0;
 
-    // Main loop
     while running.load(Ordering::SeqCst) {
         match listener.accept() {
-            Ok((stream, _)) => {
+            Ok((stream, addr)) => {
+                // Log new client connection
+                println!(
+                    "New client connected: {} with ID {}",
+                    addr, client_id_counter
+                );
+
+                // Set timeout for the client stream
+                set_stream_timeout(&stream, Duration::from_secs(30));
+
+                // Wrap the stream in Arc<Mutex<TcpStream>>
+                let stream = Arc::new(Mutex::new(stream));
+
+                // Update shared clients map
                 let client_id = client_id_counter;
                 client_id_counter += 1;
 
-                let stream = Arc::new(Mutex::new(stream));
                 let clients = Arc::clone(&clients);
                 let running = Arc::clone(&running);
 
@@ -92,6 +112,7 @@ fn main() {
                     },
                 );
 
+                // Spawn a thread to handle the client
                 thread::spawn(move || handle_client(stream, client_id, clients, running));
             }
             Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
@@ -117,5 +138,5 @@ fn main() {
             .shutdown(std::net::Shutdown::Both);
     }
 
-    println!("Server shut down gracefully.");
+    println!("Server terminated successfully");
 }
