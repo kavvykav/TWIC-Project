@@ -60,6 +60,10 @@ fn handle_client(
     println!("Shutting down thread for client {}", client_id);
 }
 
+// TODO: Implement function that queries the centralized database
+
+fn query_database()
+
 fn main() {
     const SERVER_ADDR: &str = "127.0.0.1:8080";
     let listener = TcpListener::bind(SERVER_ADDR).expect("Failed to bind address");
