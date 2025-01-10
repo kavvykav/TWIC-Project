@@ -1,4 +1,3 @@
-
 use rusqlite::{params, Connection, Result};
 use tokio::net::TcpListener;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -13,7 +12,7 @@ const IP_ADDRESS: &str = "127.0.0.1:3036";
 #[derive(Deserialize)]
 struct Request {
     command: String,
-    data: Option<String>,
+    data: Option<String>
 }
 
 // Response Format
@@ -99,6 +98,19 @@ async fn handle_port_server_request(conn: Arc<Mutex<Connection>>, req: Request) 
                 }
             }
         }
+        //TODO: Implement these functionalities
+        "DELETE" => {
+            Response {
+                status: "error".to_string(),
+                data: Some("Not implemented yet".to_string()),
+            }
+        }
+        "UPDATE" => {
+            Response {
+                status: "error".to_string(),
+                data: Some("Not implemented yet".to_string()),
+            }
+        }
         _ => Response {
             status: "error".to_string(),
             data: Some("Unknown command".to_string()),
@@ -112,7 +124,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let database = Arc::new(Mutex::new(database)); // Wrap the connection in Arc<Mutex>
 
     let listener = TcpListener::bind(IP_ADDRESS).await?;
-    println!("Server is listening on {}", IP_ADDRESS);
+    println!("Database server is listening on {}", IP_ADDRESS);
 
     loop {
         let (mut socket, addr) = listener.accept().await?;
