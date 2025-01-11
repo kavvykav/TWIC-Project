@@ -1,12 +1,12 @@
 mod roles;
 
-use rusqlite::{params, Connection, Result};
-use tokio::net::TcpListener;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::sync::Mutex;
-use std::sync::Arc;
-use serde::{Deserialize, Serialize};
 use roles::Role;
+use rusqlite::{params, Connection, Result};
+use serde::{Deserialize, Serialize};
+use std::sync::Arc;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpListener;
+use tokio::sync::Mutex;
 
 const IP_ADDRESS: &str = "127.0.0.1:3036";
 
@@ -65,7 +65,7 @@ async fn handle_port_server_request(conn: Arc<Mutex<Connection>>, req: Request) 
                      JOIN roles ON employees.role_id = roles.id WHERE employees.id = ?1",
                     params![data],
                     |row| row.get(0),
-                );                
+                );
                 match result {
                     Ok(worker_data) => Response {
                         status: "success".to_string(),
@@ -126,6 +126,46 @@ async fn handle_port_server_request(conn: Arc<Mutex<Connection>>, req: Request) 
                             data: Some("Invalid role".to_string()),
                         }
                     }
+                } else {
+                    Response {
+                        status: "error".to_string(),
+                        data: Some("Invalid data format".to_string()),
+                    }
+                }
+            } else {
+                Response {
+                    status: "error".to_string(),
+                    data: Some("No data provided".to_string()),
+                }
+            }
+        }
+        "UPDATE" => {
+            // TODO: update function
+            if let Some(data) = req.data {
+                let fields: Vec<&str> = data.split(',').collect();
+                // fields are employee ID and employee's new role
+                if fields.len() == 2 {
+                    //
+                } else {
+                    Response {
+                        status: "error".to_string(),
+                        data: Some("Invalid data format".to_string()),
+                    }
+                }
+            } else {
+                Response {
+                    status: "error".to_string(),
+                    data: Some("No data provided".to_string()),
+                }
+            }
+        }
+        "DELETE" => {
+            // TODO: delete function
+            if let Some(data) = req.data {
+                let fields: Vec<&str> = data.split(',').collect();
+                // field is just employee ID to delete
+                if fields.len() == 1 {
+                    //
                 } else {
                     Response {
                         status: "error".to_string(),
