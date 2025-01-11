@@ -24,18 +24,89 @@ struct Response {
 
 /// Initializes the worker database if it does not already exist.
 fn initialize_database() -> Result<Connection> {
-    let conn = Connection::open("registered_workers.db")?;
+    let conn = Connection::open("system.db")?;
+
+    // Create roles table
     conn.execute(
-        "CREATE TABLE IF NOT EXISTS workers (
+        "CREATE TABLE IF NOT EXISTS roles (
             id INTEGER PRIMARY KEY,
-            name TEXT NOT NULL,
-            location TEXT NOT NULL,
-            role TEXT NOT NULL
+            name TEXT NOT NULL
         )",
         [],
     )?;
+
+    // Create ports table
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS ports (
+            id INTEGER PRIMARY KEY,
+            location TEXT NOT NULL
+        )",
+        [],
+    )?;
+
+    // Create employees table
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS employees (
+            id INTEGER PRIMARY KEY,
+            name TEXT NOT NULL,
+            fingerprint_hash TEXT NOT NULL,
+            role_id INTEGER NOT NULL,
+            FOREIGN KEY (role_id) REFERENCES roles (id)
+        )",
+        [],
+    )?;
+
+    // Create checkpoints table
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS checkpoints (
+            id INTEGER PRIMARY KEY,
+            restricted_area TEXT NOT NULL,
+            rsa_public_key INTEGER NOT NULL,
+            port_id INTEGER NOT NULL,
+            FOREIGN KEY (port_id) REFERENCES ports (id)
+        )",
+        [],
+    )?;
+
+    // Join table: checkpoint_roles
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS checkpoint_roles (
+            checkpoint_id INTEGER NOT NULL,
+            role_id INTEGER NOT NULL,
+            PRIMARY KEY (checkpoint_id, role_id),
+            FOREIGN KEY (checkpoint_id) REFERENCES checkpoints (id),
+            FOREIGN KEY (role_id) REFERENCES roles (id)
+        )",
+        [],
+    )?;
+
+    // Join table: port_checkpoints
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS port_checkpoints (
+            port_id INTEGER NOT NULL,
+            checkpoint_id INTEGER NOT NULL,
+            PRIMARY KEY (port_id, checkpoint_id),
+            FOREIGN KEY (port_id) REFERENCES ports (id),
+            FOREIGN KEY (checkpoint_id) REFERENCES checkpoints (id)
+        )",
+        [],
+    )?;
+
+    // Join table: port_employees
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS port_employees (
+            port_id INTEGER NOT NULL,
+            employee_id INTEGER NOT NULL,
+            PRIMARY KEY (port_id, employee_id),
+            FOREIGN KEY (port_id) REFERENCES ports (id),
+            FOREIGN KEY (employee_id) REFERENCES employees (id)
+        )",
+        [],
+    )?;
+
     Ok(conn)
 }
+
 
 /// Handles a request from the port server, whether it be an enrollment or
 /// an authentication.
@@ -46,7 +117,7 @@ async fn handle_port_server_request(conn: Arc<Mutex<Connection>>, req: Request) 
         "AUTHENTICATE" => {
             if let Some(data) = req.data {
                 let result: Result<String, _> = conn.query_row(
-                    "SELECT name || ',' || location || ',' || role FROM workers WHERE id = ?1",
+                    "SELECT name || ',' || location || ',' || role FROM employees WHERE id = ?1",
                     params![data],
                     |row| row.get(0),
                 );
@@ -68,37 +139,61 @@ async fn handle_port_server_request(conn: Arc<Mutex<Connection>>, req: Request) 
             }
         }
         "ENROLL" => {
-            if let Some(data) = req.data {
-                let fields: Vec<&str> = data.split(',').collect();
-                if fields.len() == 3 {
-                    let result = conn.execute(
-                        "INSERT INTO workers (name, location, role) VALUES (?1, ?2, ?3)",
-                        params![fields[0], fields[1], fields[2]],
+    if let Some(data) = req.data {
+        let fields: Vec<&str> = data.split(',').collect();
+        if fields.len() == 3 {
+            let name = fields[0];
+            let location = fields[1]; // use this for linking employees to ports
+            let role_name = fields[2];
+
+            // Find the role_id for the role name
+            let role_id_result: Result<i32, _> = conn.query_row(
+                "SELECT id FROM roles WHERE name = ?1",
+                params![role_name],
+                |row| row.get(0),
+            );
+
+            match role_id_result {
+                Ok(role_id) => {
+                    // Insert the employee into the employees table
+                    let insert_result = conn.execute(
+                        "INSERT INTO employees (name, fingerprint_hash, role_id) VALUES (?1, ?2, ?3)",
+                        params![name, "dummy_hash", role_id], // Replace this later
                     );
-                    match result {
+
+                    match insert_result {
                         Ok(_) => Response {
                             status: "success".to_string(),
                             data: None,
                         },
-                        Err(_) => Response {
-                            status: "error".to_string(),
-                            data: Some("Failed to insert worker".to_string()),
-                        },
-                    }
-                } else {
-                    Response {
-                        status: "error".to_string(),
-                        data: Some("Invalid data format".to_string()),
+                        Err(e) => {
+                            println!("Error enrolling employee: {}", e);
+                            Response {
+                                status: "error".to_string(),
+                                data: Some("Failed to insert employee".to_string()),
+                            }
+                        }
                     }
                 }
-            } else {
-                Response {
+                Err(_) => Response {
                     status: "error".to_string(),
-                    data: Some("No data provided".to_string()),
-                }
+                    data: Some("Role not found".to_string()),
+                },
+            }
+        } else {
+            Response {
+                status: "error".to_string(),
+                data: Some("Invalid data format".to_string()),
             }
         }
-        //TODO: Implement these functionalities
+    } else {
+        Response {
+            status: "error".to_string(),
+            data: Some("No data provided".to_string()),
+        }
+    }
+}
+  //do this later
         "DELETE" => {
             Response {
                 status: "error".to_string(),

@@ -11,7 +11,7 @@ use std::{
 };
 
 const SERVER_ADDR: &str = "127.0.0.1:8080";
-const DATABASE_ADDR: &str = "127.0.0.1:2026";
+const DATABASE_ADDR: &str = "127.0.0.1:3036";
 
 // Client struct to track clients with an ID and a stream
 #[derive(Clone)]
@@ -70,6 +70,7 @@ fn handle_client(
 
                 match request {
                     Ok(request) => {
+                        println!("{}", DATABASE_ADDR); 
                         let response = match query_database(DATABASE_ADDR, &request) {
                             Ok(response) => serde_json::to_string(&response)
                                 .unwrap_or_else(|_| "{\"status\":\"error\",\"data\":\"Serialization error\"}".to_string()),
@@ -177,8 +178,8 @@ fn main() {
                 // Spawn a thread to handle the client
                 thread::spawn(move || handle_client(stream, client_id, clients, running));
             }
-            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                thread::sleep(Duration::from_millis(100));
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                thread::sleep(Duration::from_millis(50));
             }
             Err(e) => {
                 eprintln!("Error accepting connection: {}", e);
