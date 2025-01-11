@@ -145,7 +145,42 @@ async fn handle_port_server_request(conn: Arc<Mutex<Connection>>, req: Request) 
                 let fields: Vec<&str> = data.split(',').collect();
                 // fields are employee ID and employee's new role
                 if fields.len() == 2 {
-                    //
+                    let id = fields[0];
+                    let role_name = fields[1];
+                    if let Some(role_id) = Role::from_str(role_name) {
+                        let exists: bool = conn.query_row(
+                            "SELECT EXISTS(SELECT 1 FROM employees WHERE name = ?1 AND role_id = ?2)",
+                            params![name, role_id as i32],
+                            |row| row.get(0),
+                        ).unwrap_or(false);
+
+                        if exists {
+                            let result = conn.execute(
+                                "UPDATE employees SET role_id = ?1 WHERE id = ?2",
+                                params![role_id as i32, id],
+                            );
+                            match result {
+                                Ok(_) => Response {
+                                    status: "success".to_string(),
+                                    data: None,
+                                },
+                                Err(_) => Response {
+                                    status: "error".to_string(),
+                                    data: Some("Failed to update role".to_string()),
+                                },
+                            }
+                        } else {
+                            Response {
+                                status: "error".to_string(),
+                                data: Some("Employee does not exist".to_string()),
+                            }
+                        }
+                    } else {
+                        Response {
+                            status: "error".to_string(),
+                            data: Some("Invalid role".to_string()),
+                        }
+                    }
                 } else {
                     Response {
                         status: "error".to_string(),
