@@ -140,7 +140,6 @@ async fn handle_port_server_request(conn: Arc<Mutex<Connection>>, req: Request) 
             }
         }
         "UPDATE" => {
-            // TODO: update function
             if let Some(data) = req.data {
                 let fields: Vec<&str> = data.split(',').collect();
                 // fields are employee ID and employee's new role
@@ -195,12 +194,37 @@ async fn handle_port_server_request(conn: Arc<Mutex<Connection>>, req: Request) 
             }
         }
         "DELETE" => {
-            // TODO: delete function
             if let Some(data) = req.data {
                 let fields: Vec<&str> = data.split(',').collect();
                 // field is just employee ID to delete
                 if fields.len() == 1 {
-                    //
+                    let id = fields[0];
+                    let exists: bool = conn
+                        .query_row(
+                            "SELECT EXISTS(SELECT 1 FROM employees WHERE name = ?1",
+                            params![name],
+                            |row| row.get(0),
+                        )
+                        .unwrap_or(false);
+                    if exists {
+                        let result =
+                            conn.execute("DELETE FROM employees WHERE id = ?1", params![id]);
+                        match result {
+                            Ok(_) => Response {
+                                status: "success".to_string(),
+                                data: None,
+                            },
+                            Err(_) => Response {
+                                status: "error".to_string(),
+                                data: Some("Failed to delete employee".to_string()),
+                            },
+                        }
+                    } else {
+                        Response {
+                            status: "error".to_string(),
+                            data: Some("Employee does not exist".to_string()),
+                        }
+                    }
                 } else {
                     Response {
                         status: "error".to_string(),
