@@ -22,6 +22,10 @@ struct Response {
     data: Option<String>,
 }
 
+fn str_to_int(input: &str) -> i32 {
+    input.trim().parse::<i32>().unwrap_or(0)
+}
+
 fn initialize_database() -> Result<Connection> {
     let conn = Connection::open("system.db")?;
 
@@ -145,18 +149,19 @@ async fn handle_port_server_request(conn: Arc<Mutex<Connection>>, req: Request) 
                 // fields are employee ID and employee's new role
                 if fields.len() == 2 {
                     let id = fields[0];
+                    let id_int = str_to_int(id);
                     let role_name = fields[1];
                     if let Some(role_id) = Role::from_str(role_name) {
                         let exists: bool = conn.query_row(
-                            "SELECT EXISTS(SELECT 1 FROM employees WHERE name = ?1 AND role_id = ?2)",
-                            params![name, role_id as i32],
+                            "SELECT EXISTS(SELECT 1 FROM employees WHERE id = ?1 AND role_id = ?2)",
+                            params![id_int as i32, role_id as i32],
                             |row| row.get(0),
                         ).unwrap_or(false);
 
                         if exists {
                             let result = conn.execute(
                                 "UPDATE employees SET role_id = ?1 WHERE id = ?2",
-                                params![role_id as i32, id],
+                                params![role_id as i32, id_int as i32],
                             );
                             match result {
                                 Ok(_) => Response {
@@ -199,16 +204,17 @@ async fn handle_port_server_request(conn: Arc<Mutex<Connection>>, req: Request) 
                 // field is just employee ID to delete
                 if fields.len() == 1 {
                     let id = fields[0];
+                    let id_int = str_to_int(id);
                     let exists: bool = conn
                         .query_row(
-                            "SELECT EXISTS(SELECT 1 FROM employees WHERE name = ?1",
-                            params![name],
+                            "SELECT EXISTS(SELECT 1 FROM employees WHERE id = ?1",
+                            params![id_int as i32],
                             |row| row.get(0),
                         )
                         .unwrap_or(false);
                     if exists {
                         let result =
-                            conn.execute("DELETE FROM employees WHERE id = ?1", params![id]);
+                            conn.execute("DELETE FROM employees WHERE id = ?1", params![id_int]);
                         match result {
                             Ok(_) => Response {
                                 status: "success".to_string(),
