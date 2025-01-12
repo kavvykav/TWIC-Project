@@ -18,10 +18,25 @@ const DATABASE_ADDR: &str = "127.0.0.1:3036";
 struct Client {
     id: usize,
     stream: Arc<Mutex<TcpStream>>,
+    state: CheckpointState,
+}
+
+// Messages to send back to a checkpoint
+#[derive(Deserialize, Serialize, Clone)]
+enum CheckpointState {
+    WaitForRfid,
+    WaitForFingerprint,
+    AuthSuccessful,
+    AuthFailed,
+}
+
+#[derive(Deserialize, Serialize, Clone)]
+struct AuthResponse {
+    status: CheckpointState,
 }
 
 // Database request struct that will be serialized into JSON
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Clone)]
 struct DatabaseRequest {
     command: String,
     rfid: Option<String>,
@@ -30,7 +45,7 @@ struct DatabaseRequest {
 }
 
 // Database reply struct to handle the deserialized response from the database
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Clone)]
 struct DatabaseReply {
     status: String,
     rfid: Option<String>,
@@ -47,6 +62,13 @@ fn set_stream_timeout(stream: &std::net::TcpStream, duration: Duration) {
         .set_write_timeout(Some(duration))
         .expect("Failed to set write timeout");
 }
+
+//TODO: We need a function to check is a user is in the port server so authentication
+// can be done locally
+
+//TODO: We need a function to add a user to the port server's hash map and keep it
+// synchronized with the central database
+
 
 // Perform RFID authentication
 fn authenticate_rfid(rfid_tag: &Option<String>) -> bool {
@@ -129,24 +151,73 @@ fn handle_client(
                 let trimmed_request = buffer.trim();
                 let request: Result<DatabaseRequest, _> = serde_json::from_str(trimmed_request);
 
-                match request.unwrap().command {
-                    _ => todo!(),
+                let request = request.unwrap(); // Take ownership once
 
-                    /*Ok(request) => {
-                        println!("{}", DATABASE_ADDR); 
-                        let response = match query_database(DATABASE_ADDR, &request) {
-                            Ok(response) => serde_json::to_string(&response)
-                                .unwrap_or_else(|_| "{\"status\":\"error\",\"data\":\"Serialization error\"}".to_string()),
-                            Err(e) => format!("{{\"status\":\"error\",\"data\":\"{}\"}}", e),
-                        };
-
-                        // Send the JSON response back to the client
-                        let _ = stream.lock().unwrap().write_all(format!("{}\n", response).as_bytes());
+                match request.command.as_str() {
+                    // Handle authentication logic using a state machine
+                    "AUTHENTICATE" => {
+                        match clients.lock().unwrap().get_mut(&client_id) {
+                            Some(client) => {
+                                let response = match client.state {
+                                    CheckpointState::WaitForRfid => {
+                                        if authenticate_rfid(&request.rfid) {
+                                            client.state = CheckpointState::WaitForFingerprint;
+                                            AuthResponse {
+                                                status: CheckpointState::WaitForFingerprint,
+                                            }
+                                        } else {
+                                            client.state = CheckpointState::AuthFailed;
+                                            AuthResponse {
+                                                status: CheckpointState::AuthFailed,
+                                            }
+                                        }
+                                    }
+                                    CheckpointState::WaitForFingerprint => {
+                                        if authenticate_fingerprint(&request.rfid, &request.fingerprint) {
+                                            client.state = CheckpointState::AuthSuccessful;
+                                            AuthResponse {
+                                                status: CheckpointState::AuthSuccessful,
+                                            }
+                                        } else {
+                                            client.state = CheckpointState::AuthFailed;
+                                            AuthResponse {
+                                                status: CheckpointState::AuthFailed,
+                                            }
+                                        }
+                                    }
+                                    CheckpointState::AuthSuccessful => {
+                                        thread::sleep(Duration::from_secs(5));
+                                        client.state = CheckpointState::WaitForRfid;
+                                        AuthResponse {
+                                            status: CheckpointState::WaitForRfid,
+                                        }
+                                    }
+                                    CheckpointState::AuthFailed => {
+                                        thread::sleep(Duration::from_secs(5));
+                                        client.state = CheckpointState::WaitForRfid;
+                                        AuthResponse {
+                                            status: CheckpointState::WaitForRfid,
+                                        }
+                                    }
+                                };
+                                // Send response back to client
+                                let response_str = serde_json::to_string(&response).unwrap();
+                                let _ = stream.lock().unwrap().write_all(format!("{}\n", response_str).as_bytes());
+                            }
+                            None => {
+                                eprintln!("Error when getting a client");
+                                break;
+                            }
+                        }
                     }
-                    Err(_) => {
-                        let error_response = "{\"status\":\"error\",\"data\":\"Invalid JSON format\"}\n";
-                        let _ = stream.lock().unwrap().write_all(error_response.as_bytes());
-                    } */
+
+                    //TODO: Handle other functionalities on the server side, 
+                    // (Enroll, Update, Delete)
+    
+                    _ => {
+                        eprintln!("Unknown command");
+                        break;
+                    }
                 }
             }
             Err(e) => {
@@ -158,7 +229,6 @@ fn handle_client(
 
     println!("Shutting down thread for client {}", client_id);
 }
-
 // Function to query the database
 fn query_database(database_addr: &str, request: &DatabaseRequest) -> Result<DatabaseReply, String> {
     // Serialize Request Data Structure
@@ -235,6 +305,7 @@ fn main() {
                     Client {
                         id: client_id,
                         stream: Arc::clone(&stream),
+                        state: CheckpointState::WaitForRfid,
                     },
                 );
 
