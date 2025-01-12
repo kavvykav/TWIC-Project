@@ -22,8 +22,11 @@ struct Response {
     data: Option<String>,
 }
 
-fn str_to_int(input: &str) -> i32 {
-    input.trim().parse::<i32>().unwrap_or(0)
+fn str_to_int(input: &str) -> Result<i32, String> {
+    input
+        .trim()
+        .parse::<i32>()
+        .map_err(|_| format!("Invalid integer: {}", input))
 }
 
 fn initialize_database() -> Result<Connection> {
@@ -65,7 +68,7 @@ async fn handle_port_server_request(conn: Arc<Mutex<Connection>>, req: Request) 
         "AUTHENTICATE" => {
             if let Some(data) = req.data {
                 let result: Result<String, _> = conn.query_row(
-                    "SELECT employees.name || ',' || roles.name FROM employees \
+                    "SELECT employees.name || ',' || employees.fingerprint_hash || ',' || roles.name FROM employees \
                      JOIN roles ON employees.role_id = roles.id WHERE employees.id = ?1",
                     params![data],
                     |row| row.get(0),
@@ -146,43 +149,46 @@ async fn handle_port_server_request(conn: Arc<Mutex<Connection>>, req: Request) 
         "UPDATE" => {
             if let Some(data) = req.data {
                 let fields: Vec<&str> = data.split(',').collect();
-                // fields are employee ID and employee's new role
                 if fields.len() == 2 {
-                    let id = fields[0];
-                    let id_int = str_to_int(id);
-                    let role_name = fields[1];
-                    if let Some(role_id) = Role::from_str(role_name) {
-                        let exists: bool = conn.query_row(
-                            "SELECT EXISTS(SELECT 1 FROM employees WHERE id = ?1 AND role_id = ?2)",
-                            params![id_int as i32, role_id as i32],
-                            |row| row.get(0),
-                        ).unwrap_or(false);
+                    let id = str_to_int(fields[0]);
+                    let new_role_name = fields[1];
 
-                        if exists {
+                    if let Ok(id) = id {
+                        if let Some(new_role_id) = Role::from_str(new_role_name) {
                             let result = conn.execute(
                                 "UPDATE employees SET role_id = ?1 WHERE id = ?2",
-                                params![role_id as i32, id_int as i32],
+                                params![new_role_id as i32, id],
                             );
+
                             match result {
-                                Ok(_) => Response {
-                                    status: "success".to_string(),
-                                    data: None,
-                                },
+                                Ok(affected) => {
+                                    if affected > 0 {
+                                        Response {
+                                            status: "success".to_string(),
+                                            data: Some(format!("Updated employee ID {} to role {}", id, new_role_name)),
+                                        }
+                                    } else {
+                                        Response {
+                                            status: "error".to_string(),
+                                            data: Some("No employee found with the given ID".to_string()),
+                                        }
+                                    }
+                                }
                                 Err(_) => Response {
                                     status: "error".to_string(),
-                                    data: Some("Failed to update role".to_string()),
+                                    data: Some("Failed to update employee".to_string()),
                                 },
                             }
                         } else {
                             Response {
                                 status: "error".to_string(),
-                                data: Some("Employee does not exist".to_string()),
+                                data: Some("Invalid role".to_string()),
                             }
                         }
                     } else {
                         Response {
                             status: "error".to_string(),
-                            data: Some("Invalid role".to_string()),
+                            data: Some("Invalid ID format".to_string()),
                         }
                     }
                 } else {
@@ -200,41 +206,33 @@ async fn handle_port_server_request(conn: Arc<Mutex<Connection>>, req: Request) 
         }
         "DELETE" => {
             if let Some(data) = req.data {
-                let fields: Vec<&str> = data.split(',').collect();
-                // field is just employee ID to delete
-                if fields.len() == 1 {
-                    let id = fields[0];
-                    let id_int = str_to_int(id);
-                    let exists: bool = conn
-                        .query_row(
-                            "SELECT EXISTS(SELECT 1 FROM employees WHERE id = ?1",
-                            params![id_int as i32],
-                            |row| row.get(0),
-                        )
-                        .unwrap_or(false);
-                    if exists {
-                        let result =
-                            conn.execute("DELETE FROM employees WHERE id = ?1", params![id_int]);
-                        match result {
-                            Ok(_) => Response {
-                                status: "success".to_string(),
-                                data: None,
-                            },
-                            Err(_) => Response {
-                                status: "error".to_string(),
-                                data: Some("Failed to delete employee".to_string()),
-                            },
+                let id = str_to_int(&data);
+
+                if let Ok(id) = id {
+                    let result = conn.execute("DELETE FROM employees WHERE id = ?1", params![id]);
+                    match result {
+                        Ok(affected) => {
+                            if affected > 0 {
+                                Response {
+                                    status: "success".to_string(),
+                                    data: Some(format!("Deleted employee with ID {}", id)),
+                                }
+                            } else {
+                                Response {
+                                    status: "error".to_string(),
+                                    data: Some("No employee found with the given ID".to_string()),
+                                }
+                            }
                         }
-                    } else {
-                        Response {
+                        Err(_) => Response {
                             status: "error".to_string(),
-                            data: Some("Employee does not exist".to_string()),
-                        }
+                            data: Some("Failed to delete employee".to_string()),
+                        },
                     }
                 } else {
                     Response {
                         status: "error".to_string(),
-                        data: Some("Invalid data format".to_string()),
+                        data: Some("Invalid ID format".to_string()),
                     }
                 }
             } else {
