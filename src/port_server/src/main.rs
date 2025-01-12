@@ -24,6 +24,8 @@ struct Client {
 #[derive(Deserialize, Serialize)]
 struct DatabaseRequest {
     command: String,
+    rfid: Option<String>,
+    fingerprint: Option<String>,
     data: Option<String>,
 }
 
@@ -31,6 +33,8 @@ struct DatabaseRequest {
 #[derive(Deserialize, Serialize)]
 struct DatabaseReply {
     status: String,
+    rfid: Option<String>,
+    fingerprint: Option<String>,
     data: Option<String>,
 }
 
@@ -42,6 +46,63 @@ fn set_stream_timeout(stream: &std::net::TcpStream, duration: Duration) {
     stream
         .set_write_timeout(Some(duration))
         .expect("Failed to set write timeout");
+}
+
+// Perform RFID authentication
+fn authenticate_rfid(rfid_tag: &Option<String>) -> bool {
+    if let Some(rfid) = rfid_tag {
+
+        // TODO: implement a function to see if a user is in the server's hash table
+        // else query the main database and add to the existing hash table.
+        // It should be called and checked before doing a query.
+
+        let request = DatabaseRequest {
+            command: "AUTHENTICATE".to_string(),
+            rfid: Some(rfid.clone()),
+            fingerprint: None,
+            data: None,
+        };
+
+        // Ensure the RFID given is in the database
+        match query_database(DATABASE_ADDR, &request) {
+            Ok(response) => {
+                return Some(rfid) == response.rfid.as_ref();
+            }
+            Err(e) => {
+                eprintln!("Error querying database for RFID: {}", e);
+                return false;
+            }
+        }
+    } else {
+        return false
+    }
+}
+
+// Perform fingerprint authentication
+fn authenticate_fingerprint(rfid_tag: &Option<String>,
+    fingerprint_hash: &Option<String>) -> bool {
+    if let (Some(rfid), Some(fingerprint)) = (rfid_tag, fingerprint_hash) {
+        // TODO: see authenticate_rfid
+        let request = DatabaseRequest {
+            command: "AUTHENTICATE".to_string(),
+            rfid: Some(rfid.clone()),
+            fingerprint: Some(fingerprint.clone()),
+            data: None,
+        };
+
+        match query_database(DATABASE_ADDR, &request) {
+            Ok(response) => {
+                return Some(rfid) == response.rfid.as_ref() &&
+                    Some(fingerprint) == response.fingerprint.as_ref();
+            }
+            Err(e) => {
+                eprintln!("Error querying database for fingerprint hash: {}", e);
+                return false;
+            }
+        }
+    } else {
+        return false;
+    }
 }
 
 // Function to handle client communication
@@ -68,8 +129,10 @@ fn handle_client(
                 let trimmed_request = buffer.trim();
                 let request: Result<DatabaseRequest, _> = serde_json::from_str(trimmed_request);
 
-                match request {
-                    Ok(request) => {
+                match request.unwrap().command {
+                    _ => todo!(),
+
+                    /*Ok(request) => {
                         println!("{}", DATABASE_ADDR); 
                         let response = match query_database(DATABASE_ADDR, &request) {
                             Ok(response) => serde_json::to_string(&response)
@@ -83,7 +146,7 @@ fn handle_client(
                     Err(_) => {
                         let error_response = "{\"status\":\"error\",\"data\":\"Invalid JSON format\"}\n";
                         let _ = stream.lock().unwrap().write_all(error_response.as_bytes());
-                    }
+                    } */
                 }
             }
             Err(e) => {

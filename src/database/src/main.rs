@@ -13,13 +13,17 @@ const IP_ADDRESS: &str = "127.0.0.1:3036";
 #[derive(Deserialize)]
 struct Request {
     command: String,
+    rfid: Option<String>,
+    fingerprint: Option <String>,
     data: Option<String>,
 }
 
 #[derive(Serialize)]
 struct Response {
     status: String,
-    data: Option<String>,
+    rfid: Option<String>,
+    fingerprint: Option <String>,
+    data: Option <String>,
 }
 
 fn str_to_int(input: &str) -> Result<i32, String> {
@@ -76,17 +80,23 @@ async fn handle_port_server_request(conn: Arc<Mutex<Connection>>, req: Request) 
                 match result {
                     Ok(worker_data) => Response {
                         status: "success".to_string(),
-                        data: Some(worker_data),
+                        rfid: Some(worker_data),
+                        fingerprint: None,
+                        data: None,
                     },
                     Err(_) => Response {
                         status: "not found".to_string(),
+                        rfid: None,
+                        fingerprint: None,
                         data: None,
                     },
                 }
             } else {
                 Response {
                     status: "error".to_string(),
-                    data: Some("ID not provided".to_string()),
+                    rfid: Some("ID not provided".to_string()),
+                    fingerprint: None,
+                    data: None,
                 }
             }
         }
@@ -108,6 +118,8 @@ async fn handle_port_server_request(conn: Arc<Mutex<Connection>>, req: Request) 
                         if exists {
                             return Response {
                                 status: "error".to_string(),
+                                rfid: None,
+                                fingerprint: None,
                                 data: Some("Employee already exists".to_string()),
                             };
                         }
@@ -120,28 +132,38 @@ async fn handle_port_server_request(conn: Arc<Mutex<Connection>>, req: Request) 
                         match result {
                             Ok(_) => Response {
                                 status: "success".to_string(),
+                                rfid: None,
+                                fingerprint: None,
                                 data: None,
                             },
                             Err(_) => Response {
                                 status: "error".to_string(),
+                                rfid: None,
+                                fingerprint: None,
                                 data: Some("Failed to enroll employee".to_string()),
                             },
                         }
                     } else {
                         Response {
                             status: "error".to_string(),
+                            rfid: None,
+                            fingerprint: None,
                             data: Some("Invalid role".to_string()),
                         }
                     }
                 } else {
                     Response {
                         status: "error".to_string(),
+                        rfid: None,
+                        fingerprint: None,
                         data: Some("Invalid data format".to_string()),
                     }
                 }
             } else {
                 Response {
                     status: "error".to_string(),
+                    rfid: None,
+                    fingerprint: None,
                     data: Some("No data provided".to_string()),
                 }
             }
@@ -165,41 +187,55 @@ async fn handle_port_server_request(conn: Arc<Mutex<Connection>>, req: Request) 
                                     if affected > 0 {
                                         Response {
                                             status: "success".to_string(),
+                                            rfid: None,
+                                            fingerprint: None,
                                             data: Some(format!("Updated employee ID {} to role {}", id, new_role_name)),
                                         }
                                     } else {
                                         Response {
                                             status: "error".to_string(),
+                                            rfid: None,
+                                            fingerprint: None,
                                             data: Some("No employee found with the given ID".to_string()),
                                         }
                                     }
                                 }
                                 Err(_) => Response {
                                     status: "error".to_string(),
+                                    fingerprint: None,
+                                    rfid: None,
                                     data: Some("Failed to update employee".to_string()),
                                 },
                             }
                         } else {
                             Response {
                                 status: "error".to_string(),
+                                fingerprint: None,
+                                rfid: None,
                                 data: Some("Invalid role".to_string()),
                             }
                         }
                     } else {
                         Response {
                             status: "error".to_string(),
+                            rfid: None,
+                            fingerprint: None,
                             data: Some("Invalid ID format".to_string()),
                         }
                     }
                 } else {
                     Response {
                         status: "error".to_string(),
+                        rfid: None,
+                        fingerprint: None,
                         data: Some("Invalid data format".to_string()),
                     }
                 }
             } else {
                 Response {
                     status: "error".to_string(),
+                    rfid: None,
+                    fingerprint: None,
                     data: Some("No data provided".to_string()),
                 }
             }
@@ -215,35 +251,47 @@ async fn handle_port_server_request(conn: Arc<Mutex<Connection>>, req: Request) 
                             if affected > 0 {
                                 Response {
                                     status: "success".to_string(),
+                                    rfid: None,
+                                    fingerprint: None,
                                     data: Some(format!("Deleted employee with ID {}", id)),
                                 }
                             } else {
                                 Response {
                                     status: "error".to_string(),
+                                    rfid: None,
+                                    fingerprint: None,
                                     data: Some("No employee found with the given ID".to_string()),
                                 }
                             }
                         }
                         Err(_) => Response {
                             status: "error".to_string(),
+                            rfid: None,
+                            fingerprint: None,
                             data: Some("Failed to delete employee".to_string()),
                         },
                     }
                 } else {
                     Response {
                         status: "error".to_string(),
+                        rfid: None,
+                        fingerprint: None,
                         data: Some("Invalid ID format".to_string()),
                     }
                 }
             } else {
                 Response {
                     status: "error".to_string(),
+                    rfid: None,
+                    fingerprint: None,
                     data: Some("No data provided".to_string()),
                 }
             }
         }
         _ => Response {
             status: "error".to_string(),
+            rfid: None,
+            fingerprint: None,
             data: Some("Unknown command".to_string()),
         },
     }
@@ -276,6 +324,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         Ok(req) => handle_port_server_request(database, req).await,
                         Err(_) => Response {
                             status: "error".to_string(),
+                            rfid: None,
+                            fingerprint: None,
                             data: Some("Invalid request format".to_string()),
                         },
                     };
