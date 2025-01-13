@@ -21,7 +21,7 @@ struct Client {
     state: CheckpointState,
 }
 
-// Messages to send back to a checkpoint
+// Messages to send back to a checkpoint (aythentication)
 #[derive(Deserialize, Serialize, Clone)]
 enum CheckpointState {
     WaitForRfid,
@@ -34,6 +34,20 @@ enum CheckpointState {
 struct AuthResponse {
     status: CheckpointState,
 }
+
+// Messages to be sent back to the checkpoint when not performing authentication
+#[derive(Deserialize, Serialize, Clone)]
+enum EnrollUpdateDeleteStatus {
+    Success,
+    Failed,
+}
+
+// Data structure used to send those messages
+#[derive(Deserialize, Serialize, Clone)]
+struct EnrollUpdateDeleteResponse {
+    status: EnrollUpdateDeleteStatus,
+}
+
 
 // Database request struct that will be serialized into JSON
 #[derive(Deserialize, Serialize, Clone)]
@@ -127,6 +141,9 @@ fn authenticate_fingerprint(rfid_tag: &Option<String>,
     }
 }
 
+// TODO: for each functionality, call the synchronization function with the central
+// database, still needs to be developed.
+
 // Function to handle client communication
 fn handle_client(
     stream: Arc<Mutex<TcpStream>>,
@@ -211,9 +228,85 @@ fn handle_client(
                         }
                     }
 
-                    //TODO: Handle other functionalities on the server side, 
-                    // (Enroll, Update, Delete)
-    
+                    // For these functionalities, a query to the central database
+                    // is performed, and the port server simply sends its response
+                    // back to the checkpoint.
+
+                    "ENROLL" => {
+                        let checkpoint_reply = match query_database(DATABASE_ADDR, &request) {
+                            Ok(db_reply) => {
+                                if db_reply.status == "success" {
+                                    EnrollUpdateDeleteResponse {
+                                        status: EnrollUpdateDeleteStatus::Success,
+                                    }
+                                } else {
+                                    EnrollUpdateDeleteResponse {
+                                        status: EnrollUpdateDeleteStatus::Failed,
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                eprintln!("Failed to query database: {}", e);
+                                EnrollUpdateDeleteResponse {
+                                    status:EnrollUpdateDeleteStatus::Failed,
+                                }
+                            }
+                        };
+                        // Send response back to client
+                        let response_str = serde_json::to_string(&checkpoint_reply).unwrap();
+                        let _ = stream.lock().unwrap().write_all(format!("{}\n", response_str).as_bytes());
+                    }
+
+                    "UPDATE" => {
+                        let checkpoint_reply = match query_database(DATABASE_ADDR, &request) {
+                            Ok(db_reply) => {
+                                if db_reply.status == "success" {
+                                    EnrollUpdateDeleteResponse {
+                                        status: EnrollUpdateDeleteStatus::Success,
+                                    }
+                                } else {
+                                    EnrollUpdateDeleteResponse {
+                                        status: EnrollUpdateDeleteStatus::Failed,
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                eprintln!("Failed to query database: {}", e);
+                                EnrollUpdateDeleteResponse {
+                                    status:EnrollUpdateDeleteStatus::Failed,
+                                }
+                            }
+                        };
+                        // Send response back to client
+                        let response_str = serde_json::to_string(&checkpoint_reply).unwrap();
+                        let _ = stream.lock().unwrap().write_all(format!("{}\n", response_str).as_bytes());
+                    }
+
+                    "DELETE" => {
+                        let checkpoint_reply = match query_database(DATABASE_ADDR, &request) {
+                            Ok(db_reply) => {
+                                if db_reply.status == "success" {
+                                    EnrollUpdateDeleteResponse {
+                                        status: EnrollUpdateDeleteStatus::Success,
+                                    }
+                                } else {
+                                    EnrollUpdateDeleteResponse {
+                                        status: EnrollUpdateDeleteStatus::Failed,
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                eprintln!("Failed to query database: {}", e);
+                                EnrollUpdateDeleteResponse {
+                                    status:EnrollUpdateDeleteStatus::Failed,
+                                }
+                            }
+                        };
+                        // Send response back to client
+                        let response_str = serde_json::to_string(&checkpoint_reply).unwrap();
+                        let _ = stream.lock().unwrap().write_all(format!("{}\n", response_str).as_bytes());
+                    }
+
                     _ => {
                         eprintln!("Unknown command");
                         break;
