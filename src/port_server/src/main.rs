@@ -54,9 +54,11 @@ struct DatabaseRequest {
     command: String,
     checkpoint_id: Option<u32>,
     worker_id: Option<u32>,
+    worker_name: Option<String>,
     worker_fingerprint: Option<String>,
     location: Option<String>,
     authorized_roles: Option<String>,
+    role_id: Option<u32>,
 }
 
 #[derive(Deserialize, Serialize, Clone)]
@@ -66,6 +68,7 @@ struct DatabaseReply {
     worker_id: Option<u32>,
     fingerprint: Option<String>,
     data: Option<String>,
+    role_id: Option<String>,
 }
 
 fn set_stream_timeout(stream: &std::net::TcpStream, duration: Duration) {
@@ -86,6 +89,8 @@ fn authenticate_rfid(rfid_tag: &Option<u32>) -> bool {
             worker_fingerprint: None,
             location: None,
             authorized_roles: None,
+            worker_name: None,
+            role_id: None,
         };
 
         match query_database(DATABASE_ADDR, &request) {
@@ -111,6 +116,8 @@ fn authenticate_fingerprint(rfid_tag: &Option<u32>, fingerprint_hash: &Option<St
             worker_fingerprint: Some(fingerprint.clone()),
             location: None,
             authorized_roles: None,
+            worker_name: None,
+            role_id: None,
         };
 
         match query_database(DATABASE_ADDR, &request) {
@@ -128,7 +135,6 @@ fn authenticate_fingerprint(rfid_tag: &Option<u32>, fingerprint_hash: &Option<St
     }
 }
 
-
 fn query_database(database_addr: &str, request: &DatabaseRequest) -> Result<DatabaseReply, String> {
     let request_json = serde_json::to_string(request)
         .map_err(|e| format!("Failed to serialize request: {}", e))?;
@@ -137,8 +143,14 @@ fn query_database(database_addr: &str, request: &DatabaseRequest) -> Result<Data
         .map_err(|e| format!("Failed to connect to database: {}", e))?;
 
     stream
-        .write_all(format!("{}
-", request_json).as_bytes())
+        .write_all(
+            format!(
+                "{}
+",
+                request_json
+            )
+            .as_bytes(),
+        )
         .map_err(|e| format!("Failed to send request to database: {}", e))?;
 
     let mut reader = BufReader::new(&mut stream);
@@ -202,6 +214,7 @@ fn handle_client(
                                         worker_id: None,
                                         fingerprint: None,
                                         data: None,
+                                        role_id: None,
                                     }
                                 } else {
                                     println!("Received from the database that the checkpoint was not added");
@@ -211,6 +224,7 @@ fn handle_client(
                                         worker_id: None,
                                         fingerprint: None,
                                         data: None,
+                                        role_id: None,
                                     }
                                 }
                             }
@@ -222,8 +236,10 @@ fn handle_client(
                         // Send response back to client
                         let mut response_str = serde_json::to_string(&checkpoint_reply).unwrap();
                         response_str.push('\0');
-                        let _ = stream.lock().unwrap().write_all(format!("{}\n", response_str).as_bytes());
-
+                        let _ = stream
+                            .lock()
+                            .unwrap()
+                            .write_all(format!("{}\n", response_str).as_bytes());
                     }
                     // Handle authentication logic using a state machine
                     "AUTHENTICATE" => {
@@ -244,7 +260,10 @@ fn handle_client(
                                         }
                                     }
                                     CheckpointState::WaitForFingerprint => {
-                                        if authenticate_fingerprint(&request.worker_id, &request.worker_fingerprint) {
+                                        if authenticate_fingerprint(
+                                            &request.worker_id,
+                                            &request.worker_fingerprint,
+                                        ) {
                                             client.state = CheckpointState::AuthSuccessful;
                                             AuthResponse {
                                                 status: CheckpointState::AuthSuccessful,
@@ -273,7 +292,10 @@ fn handle_client(
                                 };
                                 // Send response back to client
                                 let response_str = serde_json::to_string(&response).unwrap();
-                                let _ = stream.lock().unwrap().write_all(format!("{}\n", response_str).as_bytes());
+                                let _ = stream
+                                    .lock()
+                                    .unwrap()
+                                    .write_all(format!("{}\n", response_str).as_bytes());
                             }
                             None => {
                                 eprintln!("Error when getting a client");
@@ -285,7 +307,6 @@ fn handle_client(
                     // For these functionalities, a query to the central database
                     // is performed, and the port server simply sends its response
                     // back to the checkpoint.
-
                     "ENROLL" => {
                         let checkpoint_reply = match query_database(DATABASE_ADDR, &request) {
                             Ok(db_reply) => {
@@ -302,13 +323,16 @@ fn handle_client(
                             Err(e) => {
                                 eprintln!("Failed to query database: {}", e);
                                 EnrollUpdateDeleteResponse {
-                                    status:EnrollUpdateDeleteStatus::Failed,
+                                    status: EnrollUpdateDeleteStatus::Failed,
                                 }
                             }
                         };
                         // Send response back to client
                         let response_str = serde_json::to_string(&checkpoint_reply).unwrap();
-                        let _ = stream.lock().unwrap().write_all(format!("{}\n", response_str).as_bytes());
+                        let _ = stream
+                            .lock()
+                            .unwrap()
+                            .write_all(format!("{}\n", response_str).as_bytes());
                     }
 
                     "UPDATE" => {
@@ -327,14 +351,17 @@ fn handle_client(
                             Err(e) => {
                                 eprintln!("Failed to query database: {}", e);
                                 EnrollUpdateDeleteResponse {
-                                    status:EnrollUpdateDeleteStatus::Failed,
+                                    status: EnrollUpdateDeleteStatus::Failed,
                                 }
                             }
                         };
                         // Send response back to client
                         let mut response_str = serde_json::to_string(&checkpoint_reply).unwrap();
                         response_str.push('\0');
-                        let _ = stream.lock().unwrap().write_all(format!("{}\n", response_str).as_bytes());
+                        let _ = stream
+                            .lock()
+                            .unwrap()
+                            .write_all(format!("{}\n", response_str).as_bytes());
                     }
 
                     "DELETE" => {
@@ -353,13 +380,16 @@ fn handle_client(
                             Err(e) => {
                                 eprintln!("Failed to query database: {}", e);
                                 EnrollUpdateDeleteResponse {
-                                    status:EnrollUpdateDeleteStatus::Failed,
+                                    status: EnrollUpdateDeleteStatus::Failed,
                                 }
                             }
                         };
                         // Send response back to client
                         let response_str = serde_json::to_string(&checkpoint_reply).unwrap();
-                        let _ = stream.lock().unwrap().write_all(format!("{}\n", response_str).as_bytes());
+                        let _ = stream
+                            .lock()
+                            .unwrap()
+                            .write_all(format!("{}\n", response_str).as_bytes());
                     }
 
                     _ => {
