@@ -3,6 +3,7 @@ use std::io::{Write, Read};
 use std::env;
 use std::thread;
 use std::time::Duration;
+use serde::{Deserialize, Serialize};
 
 mod fingerprint;
 mod rfid;
@@ -11,13 +12,75 @@ const RFID_PORT: &str = "/dev/ttyUSB0";
 const FINGERPRINT_PORT: &str = "/dev/ttyUSB1";
 const BAUD_RATE: u32 = 9600;
 
+#[derive(Serialize, Clone)]
+struct InitRequest {
+    command: String,
+    location: String,
+    authorized_roles: String,
+}
+
+#[derive(Deserialize, Clone)]
+struct InitReply {
+    id: i32,
+}
+
+#[derive(Serialize, Clone)]
+struct CheckpointRequest {
+    command: String,
+    checkpoint_id: Option<u32>,
+    worker_id: Option<u32>,
+    worker_fingerprint: Option<String>,
+}
+
+/// Regsiter a checkpoint in the centralized database upon startup.
+fn register_in_database(stream: &mut TcpStream, init_req: &InitRequest) -> InitReply {
+
+    // Serialize InitReq structure into a JSON
+    let mut init_json = match serde_json::to_string(init_req) {
+        Ok(json) => json,
+        Err(e) => return InitReply{id: -1}
+    };
+    init_json.push('\0');
+
+    // Send to Port Server
+    if let Err(e) = stream.write_all(init_json.as_bytes()) {
+        return InitReply{id: -1}
+    }
+
+    // Flush the stream
+    stream.flush().unwrap();
+
+    // Read response
+    let mut buffer = vec![0;64];
+    let bytes_read = match stream.read(&mut buffer) {
+        Ok(bytes) => bytes,
+        Err(e) => return InitReply{id: -1}
+    };
+
+    // Deserialize the response
+    let response: InitReply = match serde_json::from_slice(&buffer[..bytes_read]) {
+        Ok(resp) => resp,
+        Err(e) => return InitReply{id: -1}
+    };
+
+    return response;
+}
+
 fn main() {
-    // Parse command line arguments to get the port location
+    // Parse command line arguments to get the port location and roles that this
+    // checkpoint allows
     let args: Vec<String> = env::args().collect();
-    if args.len() != 2 {
-        eprintln!("Make sure that only one command argument is used");
+    if args.len() <  3 {
+        eprintln!("Command line arguments need to be as follows: [location] [allowed roles]");
         return;
     }
+
+    // Get location of the checkpoint
+    let location = args.get(1).unwrap().to_string();
+
+    // Get authorized roles for this checkpoint
+    let authorized_roles = args[2..].to_vec().join(",");
+
 
     // Connect to Port Server
     let mut stream = match TcpStream::connect("127.0.0.1:8080") {
@@ -30,6 +93,20 @@ fn main() {
             return;
         }
     };
+
+    // Send an init request to register in the database
+    let init_req = InitRequest {
+        command: "INIT_REQUEST".to_string(),
+        location: location,
+        authorized_roles: authorized_roles,
+    };
+
+    let init_reply: InitReply = register_in_database(&mut stream, &init_req);
+
+    if init_reply.id == -1 {
+        eprintln!("Error with registering the checkpoint");
+        return;
+    }
 
     // Polling loop used to authenticate user
     loop {
@@ -54,7 +131,7 @@ fn main() {
         }
 
         // Wait for a response from the server
-        let mut buffer = [0; 1];
+        let mut buffer = [0; 128];
         let rfid_bytes_read = match stream.read(&mut buffer) {
             Ok(bytes_read) => bytes_read,
             Err(e) => {
@@ -107,6 +184,7 @@ fn main() {
             eprintln!("No response from server");
         }
 
-        thread::sleep(Duration::new(1, 0));
+        // 5 second timeout between loop iterations
+        thread::sleep(Duration::new(5, 0));
     }
 }
