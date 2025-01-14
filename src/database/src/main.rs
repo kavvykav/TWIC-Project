@@ -184,7 +184,7 @@ async fn handle_port_server_request(conn: Arc<Mutex<Connection>>, req: Request) 
 
             let result = conn.execute(
                 "INSERT INTO employees (name, fingerprint_hash, role_id) VALUES (?1, ?2, ?3)",
-                params![req.worker_name, "dummy_hash", req.worker_id],
+                params![req.worker_name, req.worker_fingerprint, req.worker_id],
             );
 
             match result {
