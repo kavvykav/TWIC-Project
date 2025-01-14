@@ -13,7 +13,11 @@ use std::{
 const SERVER_ADDR: &str = "127.0.0.1:8080";
 const DATABASE_ADDR: &str = "127.0.0.1:3036";
 
-// Client struct to track clients with an ID and a stream
+#[derive(Deserialize)]
+struct CommandWrapper {
+    command: String,
+}
+
 #[derive(Clone)]
 struct Client {
     id: usize,
@@ -21,7 +25,6 @@ struct Client {
     state: CheckpointState,
 }
 
-// Messages to send back to a checkpoint (aythentication)
 #[derive(Deserialize, Serialize, Clone)]
 enum CheckpointState {
     WaitForRfid,
@@ -35,39 +38,36 @@ struct AuthResponse {
     status: CheckpointState,
 }
 
-// Messages to be sent back to the checkpoint when not performing authentication
 #[derive(Deserialize, Serialize, Clone)]
 enum EnrollUpdateDeleteStatus {
     Success,
     Failed,
 }
 
-// Data structure used to send those messages
 #[derive(Deserialize, Serialize, Clone)]
 struct EnrollUpdateDeleteResponse {
     status: EnrollUpdateDeleteStatus,
 }
 
-
-// Database request struct that will be serialized into JSON
 #[derive(Deserialize, Serialize, Clone)]
 struct DatabaseRequest {
     command: String,
-    rfid: Option<String>,
-    fingerprint: Option<String>,
-    data: Option<String>,
+    checkpoint_id: Option<u32>,
+    worker_id: Option<u32>,
+    worker_fingerprint: Option<String>,
+    location: Option<String>,
+    authorized_roles: Option<String>,
 }
 
-// Database reply struct to handle the deserialized response from the database
 #[derive(Deserialize, Serialize, Clone)]
 struct DatabaseReply {
     status: String,
-    rfid: Option<String>,
+    checkpoint_id: Option<u32>,
+    worker_id: Option<u32>,
     fingerprint: Option<String>,
     data: Option<String>,
 }
 
-// Function that handles timeouts for TCP connections
 fn set_stream_timeout(stream: &std::net::TcpStream, duration: Duration) {
     stream
         .set_read_timeout(Some(duration))
@@ -77,32 +77,20 @@ fn set_stream_timeout(stream: &std::net::TcpStream, duration: Duration) {
         .expect("Failed to set write timeout");
 }
 
-//TODO: We need a function to check is a user is in the port server so authentication
-// can be done locally
-
-//TODO: We need a function to add a user to the port server's hash map and keep it
-// synchronized with the central database
-
-
-// Perform RFID authentication
-fn authenticate_rfid(rfid_tag: &Option<String>) -> bool {
+fn authenticate_rfid(rfid_tag: &Option<u32>) -> bool {
     if let Some(rfid) = rfid_tag {
-
-        // TODO: implement a function to see if a user is in the server's hash table
-        // else query the main database and add to the existing hash table.
-        // It should be called and checked before doing a query.
-
         let request = DatabaseRequest {
             command: "AUTHENTICATE".to_string(),
-            rfid: Some(rfid.clone()),
-            fingerprint: None,
-            data: None,
+            checkpoint_id: None,
+            worker_id: None,
+            worker_fingerprint: None,
+            location: None,
+            authorized_roles: None,
         };
 
-        // Ensure the RFID given is in the database
         match query_database(DATABASE_ADDR, &request) {
             Ok(response) => {
-                return Some(rfid) == response.rfid.as_ref();
+                return Some(rfid) == response.worker_id.as_ref();
             }
             Err(e) => {
                 eprintln!("Error querying database for RFID: {}", e);
@@ -110,26 +98,25 @@ fn authenticate_rfid(rfid_tag: &Option<String>) -> bool {
             }
         }
     } else {
-        return false
+        return false;
     }
 }
 
-// Perform fingerprint authentication
-fn authenticate_fingerprint(rfid_tag: &Option<String>,
-    fingerprint_hash: &Option<String>) -> bool {
+fn authenticate_fingerprint(rfid_tag: &Option<u32>, fingerprint_hash: &Option<String>) -> bool {
     if let (Some(rfid), Some(fingerprint)) = (rfid_tag, fingerprint_hash) {
-        // TODO: see authenticate_rfid
         let request = DatabaseRequest {
             command: "AUTHENTICATE".to_string(),
-            rfid: Some(rfid.clone()),
-            fingerprint: Some(fingerprint.clone()),
-            data: None,
+            checkpoint_id: None,
+            worker_id: Some(rfid.clone()),
+            worker_fingerprint: Some(fingerprint.clone()),
+            location: None,
+            authorized_roles: None,
         };
 
         match query_database(DATABASE_ADDR, &request) {
             Ok(response) => {
-                return Some(rfid) == response.rfid.as_ref() &&
-                    Some(fingerprint) == response.fingerprint.as_ref();
+                return Some(rfid) == response.worker_id.as_ref()
+                    && Some(fingerprint) == response.fingerprint.as_ref();
             }
             Err(e) => {
                 eprintln!("Error querying database for fingerprint hash: {}", e);
@@ -139,6 +126,37 @@ fn authenticate_fingerprint(rfid_tag: &Option<String>,
     } else {
         return false;
     }
+}
+
+
+fn query_database(database_addr: &str, request: &DatabaseRequest) -> Result<DatabaseReply, String> {
+    let request_json = serde_json::to_string(request)
+        .map_err(|e| format!("Failed to serialize request: {}", e))?;
+
+    let mut stream = TcpStream::connect(database_addr)
+        .map_err(|e| format!("Failed to connect to database: {}", e))?;
+
+    stream
+        .write_all(format!("{}
+", request_json).as_bytes())
+        .map_err(|e| format!("Failed to send request to database: {}", e))?;
+
+    let mut reader = BufReader::new(&mut stream);
+    let mut response_json = String::new();
+    reader
+        .read_line(&mut response_json)
+        .map_err(|e| format!("Failed to read response: {}", e))?;
+
+    response_json.pop();
+
+    let response: DatabaseReply = serde_json::from_str(&response_json)
+        .map_err(|e| format!("Failed to parse response: {}", e))?;
+
+    stream
+        .shutdown(std::net::Shutdown::Both)
+        .map_err(|e| format!("Failed to close connection with the database: {}", e))?;
+
+    Ok(response)
 }
 
 // TODO: for each functionality, call the synchronization function with the central
@@ -154,30 +172,66 @@ fn handle_client(
     println!("Client {} connected", client_id);
 
     let mut reader = BufReader::new(stream.lock().unwrap().try_clone().unwrap());
-    let mut buffer = String::new();
+    let mut buffer = Vec::new();
 
     while running.load(Ordering::SeqCst) {
         buffer.clear();
-        match reader.read_line(&mut buffer) {
+        match reader.read_until(b'\0', &mut buffer) {
             Ok(0) => {
                 println!("Client {} disconnected", client_id);
                 clients.lock().unwrap().remove(&client_id);
                 break;
             }
             Ok(_) => {
-                let trimmed_request = buffer.trim();
-                let request: Result<DatabaseRequest, _> = serde_json::from_str(trimmed_request);
+                let buffer_str = String::from_utf8(buffer.clone())
+                    .expect("Failed to convert buffer to a string format");
+                let trimmed_request = buffer_str.trim_end_matches('\0').trim();
+                let mut request: Result<DatabaseRequest, _> = serde_json::from_str(trimmed_request);
 
-                let request = request.unwrap(); // Take ownership once
+                let mut request = request.unwrap(); // Take ownership once
 
                 match request.command.as_str() {
+                    "INIT_REQUEST" => {
+                        let checkpoint_reply = match query_database(DATABASE_ADDR, &request) {
+                            Ok(db_reply) => {
+                                if db_reply.status == "success" {
+                                    println!("Received confirmation from the database that the checkpoint was added");
+                                    DatabaseReply {
+                                        status: "success".to_string(),
+                                        checkpoint_id: db_reply.checkpoint_id,
+                                        worker_id: None,
+                                        fingerprint: None,
+                                        data: None,
+                                    }
+                                } else {
+                                    println!("Received from the database that the checkpoint was not added");
+                                    DatabaseReply {
+                                        status: "error".to_string(),
+                                        checkpoint_id: None,
+                                        worker_id: None,
+                                        fingerprint: None,
+                                        data: None,
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                eprintln!("Error with querying the central database: {}", e);
+                                break;
+                            }
+                        };
+                        // Send response back to client
+                        let mut response_str = serde_json::to_string(&checkpoint_reply).unwrap();
+                        response_str.push('\0');
+                        let _ = stream.lock().unwrap().write_all(format!("{}\n", response_str).as_bytes());
+
+                    }
                     // Handle authentication logic using a state machine
                     "AUTHENTICATE" => {
                         match clients.lock().unwrap().get_mut(&client_id) {
                             Some(client) => {
                                 let response = match client.state {
                                     CheckpointState::WaitForRfid => {
-                                        if authenticate_rfid(&request.rfid) {
+                                        if authenticate_rfid(&request.worker_id) {
                                             client.state = CheckpointState::WaitForFingerprint;
                                             AuthResponse {
                                                 status: CheckpointState::WaitForFingerprint,
@@ -190,7 +244,7 @@ fn handle_client(
                                         }
                                     }
                                     CheckpointState::WaitForFingerprint => {
-                                        if authenticate_fingerprint(&request.rfid, &request.fingerprint) {
+                                        if authenticate_fingerprint(&request.worker_id, &request.worker_fingerprint) {
                                             client.state = CheckpointState::AuthSuccessful;
                                             AuthResponse {
                                                 status: CheckpointState::AuthSuccessful,
@@ -278,7 +332,8 @@ fn handle_client(
                             }
                         };
                         // Send response back to client
-                        let response_str = serde_json::to_string(&checkpoint_reply).unwrap();
+                        let mut response_str = serde_json::to_string(&checkpoint_reply).unwrap();
+                        response_str.push('\0');
                         let _ = stream.lock().unwrap().write_all(format!("{}\n", response_str).as_bytes());
                     }
 
@@ -322,38 +377,6 @@ fn handle_client(
 
     println!("Shutting down thread for client {}", client_id);
 }
-// Function to query the database
-fn query_database(database_addr: &str, request: &DatabaseRequest) -> Result<DatabaseReply, String> {
-    // Serialize Request Data Structure
-    let request_json = serde_json::to_string(request)
-        .map_err(|e| format!("Failed to serialize request: {}", e))?;
-
-    // Connect to Centralized database
-    let mut stream = TcpStream::connect(database_addr)
-        .map_err(|e| format!("Failed to connect to database: {}", e))?;
-
-    // Send JSON request to Database
-    stream.write_all(format!("{}\n", request_json).as_bytes())
-        .map_err(|e| format!("Failed to send request to database: {}", e))?;
-
-    // Decode response from Database
-    let mut reader = BufReader::new(&mut stream);
-    let mut response_json = String::new();
-    reader
-        .read_line(&mut response_json)
-        .map_err(|e| format!("Failed to read response: {}", e))?;
-
-    // Deserialize the JSON response
-    let response: DatabaseReply = serde_json::from_str(&response_json)
-        .map_err(|e| format!("Failed to parse response: {}", e))?;
-
-    // Disconnect from the Database
-    stream.shutdown(std::net::Shutdown::Both)
-        .map_err(|e| format!("Failed to close connection with the database: {}", e))?;
-
-    Ok(response)
-}
-
 // Main server function
 fn main() {
     let listener = TcpListener::bind(SERVER_ADDR).expect("Failed to bind address");

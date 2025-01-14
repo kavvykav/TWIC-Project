@@ -1,5 +1,5 @@
 use std::net::TcpStream;
-use std::io::{Write, Read};
+use std::io::{Write, Read, BufRead, BufReader};
 use std::env;
 use std::thread;
 use std::time::Duration;
@@ -12,55 +12,94 @@ const RFID_PORT: &str = "/dev/ttyUSB0";
 const FINGERPRINT_PORT: &str = "/dev/ttyUSB1";
 const BAUD_RATE: u32 = 9600;
 
-#[derive(Serialize, Clone)]
-struct InitRequest {
-    command: String,
-    location: String,
-    authorized_roles: String,
-}
-
 #[derive(Deserialize, Clone)]
-struct InitReply {
-    id: i32,
+struct CheckpointReply {
+    status: String,
+    checkpoint_id: Option<u32>,
+    worker_id: Option<u32>,
+    fingerprint: Option<String>,
+    data: Option<String>,
 }
-
 #[derive(Serialize, Clone)]
 struct CheckpointRequest {
     command: String,
     checkpoint_id: Option<u32>,
     worker_id: Option<u32>,
     worker_fingerprint: Option<String>,
+    location: Option<String>,
+    authorized_roles: Option<String>,
 }
 
 /// Regsiter a checkpoint in the centralized database upon startup.
-fn register_in_database(stream: &mut TcpStream, init_req: &InitRequest) -> InitReply {
+fn register_in_database(stream: &mut TcpStream, init_req: &CheckpointRequest) -> CheckpointReply {
 
-    // Serialize InitReq structure into a JSON
+    // Serialize structure into a JSON
     let mut init_json = match serde_json::to_string(init_req) {
         Ok(json) => json,
-        Err(e) => return InitReply{id: -1}
+        Err(e) => {
+            eprintln!("Could not serialize structure: {}", e);
+            return CheckpointReply {
+                status: "error".to_string(),
+                checkpoint_id: None,
+                worker_id: None,
+                fingerprint: None,
+                data: None,
+            }
+        }
     };
     init_json.push('\0');
 
     // Send to Port Server
     if let Err(e) = stream.write_all(init_json.as_bytes()) {
-        return InitReply{id: -1}
+        eprintln!("Could not send to port server: {}", e);
+        return CheckpointReply {
+            status: "error".to_string(),
+            checkpoint_id: None,
+            worker_id: None,
+            fingerprint: None,
+            data: None,
+        }
     }
 
     // Flush the stream
     stream.flush().unwrap();
 
     // Read response
-    let mut buffer = vec![0;64];
-    let bytes_read = match stream.read(&mut buffer) {
-        Ok(bytes) => bytes,
-        Err(e) => return InitReply{id: -1}
+    let mut reader = BufReader::new(stream.try_clone().unwrap());
+    let mut buffer = Vec::new();
+
+    let buffer_str: String = match reader.read_until(b'\0', &mut buffer) {
+        Ok(_) => {
+            match String::from_utf8(buffer.clone()) {
+                Ok(mut string) => {
+                    string.pop(); // Remove the null terminator if present
+                    string
+                }
+                Err(e) => {
+                    eprintln!("Failed to convert buffer to a string format: {}", e);
+                    String::new()
+                }
+            }
+        }
+        Err(e) => {
+            eprintln!("Failed to read response from port server: {}", e);
+            String::new()
+        }
     };
 
     // Deserialize the response
-    let response: InitReply = match serde_json::from_slice(&buffer[..bytes_read]) {
+    let response: CheckpointReply = match serde_json::from_str(&buffer_str) {
         Ok(resp) => resp,
-        Err(e) => return InitReply{id: -1}
+        Err(e) => {
+            eprintln!("Could not deserialize response: {}", e);
+            return CheckpointReply {
+                status: "error".to_string(),
+                checkpoint_id: None,
+                worker_id: None,
+                fingerprint: None,
+                data: None,
+            }
+        }
     };
 
     return response;
@@ -95,23 +134,28 @@ fn main() {
     };
 
     // Send an init request to register in the database
-    let init_req = InitRequest {
+    let init_req = CheckpointRequest {
         command: "INIT_REQUEST".to_string(),
-        location: location,
-        authorized_roles: authorized_roles,
+        checkpoint_id: None,
+        worker_id: None,
+        worker_fingerprint: None,
+        location: Some(location),
+        authorized_roles: Some(authorized_roles),
     };
 
-    let init_reply: InitReply = register_in_database(&mut stream, &init_req);
+    let init_reply: CheckpointReply = register_in_database(&mut stream, &init_req);
 
-    if init_reply.id == -1 {
+    if init_reply.status == "error" {
         eprintln!("Error with registering the checkpoint");
         return;
     }
 
+    println!("Got an ID assigned by the central database: {}", init_reply.checkpoint_id.unwrap_or(0) );
+
     // Polling loop used to authenticate user
     loop {
         // Collect card info (first layer of authentication)
-        println!("Please tap your card");
+        //println!("Please tap your card");
         let tag_id = match rfid::read_rfid(RFID_PORT, BAUD_RATE) {
             Ok(tag_id) => {
                 println!("RFID Tag ID: {}", tag_id);
@@ -119,7 +163,7 @@ fn main() {
             }
             Err(e) => {
                 eprintln!("Error: {}", e);
-                continue;
+                break;
             }
         };
 
@@ -127,7 +171,7 @@ fn main() {
         println!("Validating card...");
         if let Err(e) = stream.write_all(tag_id.as_bytes()) {
             eprintln!("Failed to send RFID data: {}", e);
-            continue;
+            break;
         }
 
         // Wait for a response from the server
@@ -136,7 +180,7 @@ fn main() {
             Ok(bytes_read) => bytes_read,
             Err(e) => {
                 eprintln!("Failed to read from server: {}", e);
-                continue;
+                break;
             }
         };
 
@@ -145,11 +189,11 @@ fn main() {
             if buffer[0] == 0 {
                 println!("Card not recognized, access denied");
                 thread::sleep(Duration::new(1, 0));
-                continue;
+                break;
             }
         } else {
             eprintln!("No response from server");
-            continue;
+            break;
         }
 
         // Collect fingerprint data
@@ -160,7 +204,7 @@ fn main() {
             }
             Err(e) => {
                 eprintln!("Error: {}", e);
-                continue;
+                break;
             }
         }
 
@@ -169,7 +213,7 @@ fn main() {
             Ok(bytes_read) => bytes_read,
             Err(e) => {
                 eprintln!("Failed to read from server: {}", e);
-                continue;
+                break;
             }
         };
 
