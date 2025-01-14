@@ -13,13 +13,21 @@ const IP_ADDRESS: &str = "127.0.0.1:3036";
 #[derive(Deserialize)]
 struct Request {
     command: String,
-    data: Option<String>,
+    checkpoint_id: Option<u32>,
+    worker_id: Option <u32>,
+    worker_fingerprint: Option<String>,
+    location: Option<String>,
+    authorized_roles: Option<String>,
 }
 
 #[derive(Serialize)]
 struct Response {
     status: String,
-    data: Option<String>,
+    checkpoint_id: Option<u32>,
+    worker_id: Option<u32>,
+    worker_fingerprint: Option<String>,
+    location: Option<String>,
+    authorized_roles: Option<String>,
 }
 
 fn str_to_int(input: &str) -> Result<i32, String> {
@@ -58,6 +66,15 @@ fn initialize_database() -> Result<Connection> {
         [],
     )?;
 
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS checkpoints (
+            id INTEGER PRIMARY KEY,
+            location TEXT NOT NULL,
+            allowed_roles TEXT NOT NULL
+        )",
+        [],
+    )?;
+
     Ok(conn)
 }
 
@@ -65,187 +82,202 @@ async fn handle_port_server_request(conn: Arc<Mutex<Connection>>, req: Request) 
     let conn = conn.lock().await;
 
     match req.command.as_str() {
-        "AUTHENTICATE" => {
-            if let Some(data) = req.data {
-                let result: Result<String, _> = conn.query_row(
-                    "SELECT employees.name || ',' || employees.fingerprint_hash || ',' || roles.name FROM employees \
-                     JOIN roles ON employees.role_id = roles.id WHERE employees.id = ?1",
-                    params![data],
-                    |row| row.get(0),
-                );
-                match result {
-                    Ok(worker_data) => Response {
+        "INIT_REQUEST" => {
+            let result = conn.execute(
+                "INSERT INTO checkpoints (location, allowed_roles) VALUES (?1, ?2)",
+                params![req.location, req.authorized_roles],
+            );
+            match result {
+                Ok(_) => {
+                    println!("Added checkpoint to the database! ID is {}", conn.last_insert_rowid());
+                    return Response {
                         status: "success".to_string(),
-                        data: Some(worker_data),
-                    },
-                    Err(_) => Response {
-                        status: "not found".to_string(),
-                        data: None,
-                    },
+                        checkpoint_id: Some(conn.last_insert_rowid() as u32),
+                        worker_id: None,
+                        worker_fingerprint: None,
+                        location: None,
+                        authorized_roles: None,
+                    };
                 }
-            } else {
-                Response {
-                    status: "error".to_string(),
-                    data: Some("ID not provided".to_string()),
+                Err(_) => {
+                    return Response {
+                        status: "error".to_string(),
+                        checkpoint_id: None,
+                        worker_id: None,
+                        worker_fingerprint: None,
+                        location: None,
+                        authorized_roles: None,
+                    };
+                }
+            }
+        }
+        "AUTHENTICATE" => {
+            let _result: Result<String, _> = conn.query_row(
+                "SELECT employees.name || ',' || employees.fingerprint_hash || ',' || roles.name FROM employees \
+                JOIN roles ON employees.role_id = roles.id WHERE employees.id = ?1",
+                params![req.worker_id],
+                |row| row.get(0),
+            );
+            match _result {
+                Ok(_worker_data) => {
+                    return Response {
+                        status: "success".to_string(),
+                        checkpoint_id: req.checkpoint_id,
+                        worker_id: req.worker_id,
+                        worker_fingerprint: req.worker_fingerprint,
+                        location: req.location,
+                        authorized_roles: req.authorized_roles
+                    }
+                }
+                Err(_) => {
+                    return Response {
+                        status: "error".to_string(),
+                        checkpoint_id: None,
+                        worker_id: None,
+                        worker_fingerprint: None,
+                        location: None,
+                        authorized_roles: None,
+                    }
                 }
             }
         }
         "ENROLL" => {
-            if let Some(data) = req.data {
-                let fields: Vec<&str> = data.split(',').collect();
-                if fields.len() == 3 {
-                    let name = fields[0];
-                    let location = fields[1];
-                    let role_name = fields[2];
+            //TODO: add worker name to the data structure
 
-                    if let Some(role_id) = Role::from_str(role_name) {
-                        let exists: bool = conn.query_row(
-                            "SELECT EXISTS(SELECT 1 FROM employees WHERE name = ?1 AND role_id = ?2)",
-                            params![name, role_id as i32],
-                            |row| row.get(0),
-                        ).unwrap_or(false);
+            let exists: bool = conn
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM employees WHERE name = ?1 AND role_id = ?2)",
+                    params![req.worker_id, req.worker_id],
+                    |row| row.get(0),
+                )
+                .unwrap_or(false);
 
-                        if exists {
-                            return Response {
-                                status: "error".to_string(),
-                                data: Some("Employee already exists".to_string()),
-                            };
-                        }
-
-                        let result = conn.execute(
-                            "INSERT INTO employees (name, fingerprint_hash, role_id) VALUES (?1, ?2, ?3)",
-                            params![name, "dummy_hash", role_id as i32],
-                        );
-
-                        match result {
-                            Ok(_) => Response {
-                                status: "success".to_string(),
-                                data: None,
-                            },
-                            Err(_) => Response {
-                                status: "error".to_string(),
-                                data: Some("Failed to enroll employee".to_string()),
-                            },
-                        }
-                    } else {
-                        Response {
-                            status: "error".to_string(),
-                            data: Some("Invalid role".to_string()),
-                        }
-                    }
-                } else {
-                    Response {
-                        status: "error".to_string(),
-                        data: Some("Invalid data format".to_string()),
-                    }
-                }
-            } else {
-                Response {
+            if exists {
+                return Response {
                     status: "error".to_string(),
-                    data: Some("No data provided".to_string()),
+                    checkpoint_id: None,
+                    worker_id: None,
+                    worker_fingerprint: None,
+                    location: None,
+                    authorized_roles: None,
+                };
+            }
+
+            //TODO: See above
+            let result = conn.execute("INSERT INTO employees (name, fingerprint_hash, role_id) VALUES (?1, ?2, ?3)",
+                            params![req.worker_id, "dummy_hash", req.worker_id]);
+
+            match result {
+                Ok(result) => {
+                    return Response {
+                        status: "success".to_string(),
+                        checkpoint_id: None,
+                        worker_id: None,
+                        worker_fingerprint: None,
+                        location: None,
+                        authorized_roles: None,
+                    };
+                }
+
+                Err(_) => {
+                    return Response {
+                        status: "error".to_string(),
+                        checkpoint_id: None,
+                        worker_id: None,
+                        worker_fingerprint: None,
+                        location: None,
+                        authorized_roles: None,
+                    };
                 }
             }
         }
         "UPDATE" => {
-            if let Some(data) = req.data {
-                let fields: Vec<&str> = data.split(',').collect();
-                if fields.len() == 2 {
-                    let id = str_to_int(fields[0]);
-                    let new_role_name = fields[1];
-
-                    if let Ok(id) = id {
-                        if let Some(new_role_id) = Role::from_str(new_role_name) {
-                            let result = conn.execute(
-                                "UPDATE employees SET role_id = ?1 WHERE id = ?2",
-                                params![new_role_id as i32, id],
-                            );
-
-                            match result {
-                                Ok(affected) => {
-                                    if affected > 0 {
-                                        Response {
-                                            status: "success".to_string(),
-                                            data: Some(format!("Updated employee ID {} to role {}", id, new_role_name)),
-                                        }
-                                    } else {
-                                        Response {
-                                            status: "error".to_string(),
-                                            data: Some("No employee found with the given ID".to_string()),
-                                        }
-                                    }
-                                }
-                                Err(_) => Response {
-                                    status: "error".to_string(),
-                                    data: Some("Failed to update employee".to_string()),
-                                },
-                            }
-                        } else {
-                            Response {
-                                status: "error".to_string(),
-                                data: Some("Invalid role".to_string()),
-                            }
-                        }
+            //TODO: add role id to request data structure
+            let result = conn.execute(
+                "UPDATE employees SET role_id = ?1 WHERE id = ?2",
+                params![req.worker_id, req.worker_id],
+            );
+            match result {
+                Ok(affected) => {
+                    if affected > 0 {
+                        return Response {
+                            status: "success".to_string(),
+                            checkpoint_id: None,
+                            worker_id: None,
+                            worker_fingerprint: None,
+                            location: None,
+                            authorized_roles: None,
+                        };
                     } else {
-                        Response {
+                        return Response {
                             status: "error".to_string(),
-                            data: Some("Invalid ID format".to_string()),
-                        }
-                    }
-                } else {
-                    Response {
-                        status: "error".to_string(),
-                        data: Some("Invalid data format".to_string()),
+                            checkpoint_id: None,
+                            worker_id: None,
+                            worker_fingerprint: None,
+                            location: None,
+                            authorized_roles: None,
+                        };
                     }
                 }
-            } else {
-                Response {
-                    status: "error".to_string(),
-                    data: Some("No data provided".to_string()),
+                Err(_) => {
+                    return Response {
+                        status: "error".to_string(),
+                        checkpoint_id: None,
+                        worker_id: None,
+                        worker_fingerprint: None,
+                        location: None,
+                        authorized_roles: None,
+                    };
                 }
             }
         }
         "DELETE" => {
-            if let Some(data) = req.data {
-                let id = str_to_int(&data);
-
-                if let Ok(id) = id {
-                    let result = conn.execute("DELETE FROM employees WHERE id = ?1", params![id]);
-                    match result {
-                        Ok(affected) => {
-                            if affected > 0 {
-                                Response {
-                                    status: "success".to_string(),
-                                    data: Some(format!("Deleted employee with ID {}", id)),
-                                }
-                            } else {
-                                Response {
-                                    status: "error".to_string(),
-                                    data: Some("No employee found with the given ID".to_string()),
-                                }
-                            }
-                        }
-                        Err(_) => Response {
+            let result = conn.execute("DELETE FROM employees WHERE id = ?1", params![req.worker_id]);
+            match result {
+                Ok(affected) => {
+                    if affected > 0 {
+                        return Response {
+                            status: "success".to_string(),
+                            checkpoint_id: None,
+                            worker_id: None,
+                            worker_fingerprint: None,
+                            location: None,
+                            authorized_roles: None,
+                        };
+                    } else {
+                        return Response {
                             status: "error".to_string(),
-                            data: Some("Failed to delete employee".to_string()),
-                        },
-                    }
-                } else {
-                    Response {
-                        status: "error".to_string(),
-                        data: Some("Invalid ID format".to_string()),
+                            checkpoint_id: None,
+                            worker_id: None,
+                            worker_fingerprint: None,
+                            location: None,
+                            authorized_roles: None,
+                        };
                     }
                 }
-            } else {
-                Response {
-                    status: "error".to_string(),
-                    data: Some("No data provided".to_string()),
+                Err(_) => {
+                    return Response {
+                        status: "error".to_string(),
+                        checkpoint_id: None,
+                        worker_id: None,
+                        worker_fingerprint: None,
+                        location: None,
+                        authorized_roles: None,
+                    };
                 }
             }
         }
-        _ => Response {
-            status: "error".to_string(),
-            data: Some("Unknown command".to_string()),
-        },
+        _ => {
+            println!("Unknown command");
+            return Response {
+                status: "error".to_string(),
+                checkpoint_id: None,
+                worker_id: None,
+                worker_fingerprint: None,
+                location: None,
+                authorized_roles: None,
+            };
+        }
     }
 }
 
@@ -276,11 +308,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         Ok(req) => handle_port_server_request(database, req).await,
                         Err(_) => Response {
                             status: "error".to_string(),
-                            data: Some("Invalid request format".to_string()),
+                            checkpoint_id: None,
+                            worker_id: None,
+                            worker_fingerprint: None,
+                            location: None,
+                            authorized_roles: None,
                         },
                     };
 
-                    let response_json = serde_json::to_string(&response).unwrap();
+                    let mut response_json = match serde_json::to_string(&response) {
+                        Ok(json) => json,
+                        Err(e) => {
+                            eprintln!("Error serializing response: {}", e);
+                            "".to_string()
+                        }
+                    };
+
+                    response_json.push('\0');
 
                     if let Err(e) = socket.write_all(response_json.as_bytes()).await {
                         eprintln!("Failed to send response: {}", e);
