@@ -211,7 +211,7 @@ fn query_database(database_addr: &str, request: &DatabaseRequest) -> Result<Data
  * Steps:
  * 1. Read data using BufReader
  * 2. Parse DatabaseRequest
- * 3. Handles according to 'command'
+ * 3. Handles according to 'command' (Refer to state machine)
  * 4. Respond with result to client, update CheckpointState
 */
 
