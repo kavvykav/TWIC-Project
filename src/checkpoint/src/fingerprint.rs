@@ -1,16 +1,14 @@
+/****************
+    IMPORTS
+****************/
 use serialport::{self, DataBits, Parity, StopBits, FlowControl};
 use std::io::{Write};
 use std::time::Duration;
 
-/// Captures fingerprint data from the fingerprint sensor connected via serial port.
-/// 
-/// # Arguments
-/// - `port_name`: The name of the serial port (e.g., `/dev/ttyUSB0` on Linux, `COM3` on Windows).
-/// - `baud_rate`: The baud rate for communication (e.g., 9600).
-/// 
-/// # Returns
-/// - `Ok(Vec<u8>)`: The fingerprint data as a vector of bytes.
-/// - `Err(String)`: An error message if something goes wrong.
+/*
+ * Name: capture_fingerprint
+ * Function: handler for the fingerprint reader
+ */
 pub fn capture_fingerprint(port_name: &str, baud_rate: u32) -> Result<Vec<u8>, String> {
     // Open the serial port and configure it
     let mut port = serialport::new(port_name, baud_rate)

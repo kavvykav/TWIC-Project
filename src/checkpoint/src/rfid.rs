@@ -1,16 +1,14 @@
+/****************
+    IMPORTS
+****************/
 use serialport::{self, DataBits, Parity, StopBits, FlowControl};
 use std::io::{Write};
 use std::time::Duration;
 
-/// Reads RFID data from the RFID module connected via serial port.
-/// 
-/// # Arguments
-/// - `port_name`: The name of the serial port (e.g., `/dev/ttyUSB0` on Linux, `COM3` on Windows).
-/// - `baud_rate`: The baud rate for communication (e.g., 9600).
-/// 
-/// # Returns
-/// - `Ok(String)`: The RFID tag ID as a string.
-/// - `Err(String)`: An error message if something goes wrong.
+/*
+ * Name: read_rfid
+ * Function: Serves as the handler for the RFID reader
+ */
 pub fn read_rfid(port_name: &str, baud_rate: u32) -> Result<String, String> {
     // Open the serial port and configure it
     let mut port = serialport::new(port_name, baud_rate)

@@ -1,3 +1,7 @@
+/****************
+    IMPORTS
+****************/
+
 mod roles;
 
 use roles::Role;
@@ -8,8 +12,15 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::sync::Mutex;
 
+/****************
+    CONSTANTS
+****************/
+
 const IP_ADDRESS: &str = "127.0.0.1:3036";
 
+/****************
+    STRUCTURES
+****************/
 #[derive(Deserialize)]
 struct Request {
     command: String,
@@ -33,6 +44,10 @@ struct Response {
     role_id: Option<u32>,
 }
 
+/*
+ * Name: str_to_int
+ * Function: converts a number in string representation to a signed 32 bit integer.
+ */
 fn str_to_int(input: &str) -> Result<i32, String> {
     input
         .trim()
@@ -40,6 +55,11 @@ fn str_to_int(input: &str) -> Result<i32, String> {
         .map_err(|_| format!("Invalid integer: {}", input))
 }
 
+/*
+ * Name: initialize_database
+ * Function: initializes the centralized database by creating all the tables,
+ *           returns a connection to the database.
+ */
 fn initialize_database() -> Result<Connection> {
     let conn = Connection::open("system.db")?;
 
@@ -81,6 +101,11 @@ fn initialize_database() -> Result<Connection> {
     Ok(conn)
 }
 
+/* 
+ * Name: handle_port_server_request
+ * Function: Searches for the command in the Request structure from the port server, 
+ *           and services the request accordingly.
+ */
 async fn handle_port_server_request(conn: Arc<Mutex<Connection>>, req: Request) -> Response {
     let conn = conn.lock().await;
 
@@ -312,6 +337,11 @@ async fn handle_port_server_request(conn: Arc<Mutex<Connection>>, req: Request) 
     }
 }
 
+/*
+ * Name: main
+ * Function: Main program for the database node, opens a socket and services oncoming
+ *           TCP connections.
+ */
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let database = initialize_database()?;

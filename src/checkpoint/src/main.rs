@@ -1,3 +1,6 @@
+/****************
+    IMPORTS
+****************/
 use std::net::TcpStream;
 use std::io::{Write, Read, BufRead, BufReader};
 use std::env;
@@ -8,10 +11,16 @@ use serde::{Deserialize, Serialize};
 mod fingerprint;
 mod rfid;
 
+/****************
+    CONSTANTS
+****************/
 const RFID_PORT: &str = "/dev/ttyUSB0";
 const FINGERPRINT_PORT: &str = "/dev/ttyUSB1";
 const BAUD_RATE: u32 = 9600;
 
+/****************
+    STRUCTURES
+****************/
 #[derive(Deserialize, Clone)]
 struct CheckpointReply {
     status: String,
@@ -30,7 +39,11 @@ struct CheckpointRequest {
     authorized_roles: Option<String>,
 }
 
-/// Regsiter a checkpoint in the centralized database upon startup.
+/*
+ * Name: register_in_database
+ * Function: sends an init message to have the checkpoint register in the centralized database,
+ *           where the checkpoint is assigned an ID.
+ */
 fn register_in_database(stream: &mut TcpStream, init_req: &CheckpointRequest) -> CheckpointReply {
 
     // Serialize structure into a JSON
@@ -105,6 +118,10 @@ fn register_in_database(stream: &mut TcpStream, init_req: &CheckpointRequest) ->
     return response;
 }
 
+/* 
+ * Name: main
+ * Funnction: serves as the main checkpoint logic
+ */
 fn main() {
     // Parse command line arguments to get the port location and roles that this
     // checkpoint allows
