@@ -63,9 +63,11 @@ struct DatabaseRequest {
     command: String,
     checkpoint_id: Option<u32>,
     worker_id: Option<u32>,
+    worker_name: Option<String>,
     worker_fingerprint: Option<String>,
     location: Option<String>,
     authorized_roles: Option<String>,
+    role_id: Option<u32>,
 }
 
 // Database response format
@@ -77,6 +79,7 @@ struct DatabaseReply {
     worker_id: Option<u32>,
     fingerprint: Option<String>,
     data: Option<String>,
+    role_id: Option<String>,
 }
 
 /*
@@ -110,6 +113,8 @@ fn authenticate_rfid(rfid_tag: &Option<u32>) -> bool {
             worker_fingerprint: None,
             location: None,
             authorized_roles: None,
+            worker_name: None,
+            role_id: None,
         };
 
         match query_database(DATABASE_ADDR, &request) {
@@ -139,6 +144,8 @@ fn authenticate_fingerprint(rfid_tag: &Option<u32>, fingerprint_hash: &Option<St
             worker_fingerprint: Some(fingerprint.clone()),
             location: None,
             authorized_roles: None,
+            worker_name: None,
+            role_id: None,
         };
 
         match query_database(DATABASE_ADDR, &request) {
@@ -254,6 +261,7 @@ fn handle_client(
                                         worker_id: None,
                                         fingerprint: None,
                                         data: None,
+                                        role_id: None,
                                     }
                                 } else {
                                     println!("Received from the database that the checkpoint was not added");
@@ -263,6 +271,7 @@ fn handle_client(
                                         worker_id: None,
                                         fingerprint: None,
                                         data: None,
+                                        role_id: None,
                                     }
                                 }
                             }

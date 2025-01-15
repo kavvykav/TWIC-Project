@@ -14,10 +14,12 @@ const IP_ADDRESS: &str = "127.0.0.1:3036";
 struct Request {
     command: String,
     checkpoint_id: Option<u32>,
-    worker_id: Option <u32>,
+    worker_id: Option<u32>,
+    worker_name: Option<String>,
     worker_fingerprint: Option<String>,
     location: Option<String>,
     authorized_roles: Option<String>,
+    role_id: Option<u32>,
 }
 
 #[derive(Serialize)]
@@ -28,6 +30,7 @@ struct Response {
     worker_fingerprint: Option<String>,
     location: Option<String>,
     authorized_roles: Option<String>,
+    role_id: Option<u32>,
 }
 
 fn str_to_int(input: &str) -> Result<i32, String> {
@@ -89,7 +92,10 @@ async fn handle_port_server_request(conn: Arc<Mutex<Connection>>, req: Request) 
             );
             match result {
                 Ok(_) => {
-                    println!("Added checkpoint to the database! ID is {}", conn.last_insert_rowid());
+                    println!(
+                        "Added checkpoint to the database! ID is {}",
+                        conn.last_insert_rowid()
+                    );
                     return Response {
                         status: "success".to_string(),
                         checkpoint_id: Some(conn.last_insert_rowid() as u32),
@@ -97,6 +103,7 @@ async fn handle_port_server_request(conn: Arc<Mutex<Connection>>, req: Request) 
                         worker_fingerprint: None,
                         location: None,
                         authorized_roles: None,
+                        role_id: None,
                     };
                 }
                 Err(_) => {
@@ -107,26 +114,38 @@ async fn handle_port_server_request(conn: Arc<Mutex<Connection>>, req: Request) 
                         worker_fingerprint: None,
                         location: None,
                         authorized_roles: None,
+                        role_id: None,
                     };
                 }
             }
         }
         "AUTHENTICATE" => {
-            let _result: Result<String, _> = conn.query_row(
-                "SELECT employees.name || ',' || employees.fingerprint_hash || ',' || roles.name FROM employees \
-                JOIN roles ON employees.role_id = roles.id WHERE employees.id = ?1",
-                params![req.worker_id],
-                |row| row.get(0),
-            );
+            let _result: Result<(Option<String>, Option<String>, Option<String>, Option<u32>), _> =
+                conn.query_row(
+                    "SELECT employees.name, employees.fingerprint_hash, roles.name, roles.id \
+    FROM employees \
+    JOIN roles ON employees.role_id = roles.id \
+    WHERE employees.id = ?1",
+                    params![req.worker_id],
+                    |row| {
+                        Ok((
+                            row.get(0)?, // employees.name
+                            row.get(1)?, // employees.fingerprint_hash
+                            row.get(2)?, // roles.name
+                            row.get(3)?, // roles.id
+                        ))
+                    },
+                );
             match _result {
-                Ok(_worker_data) => {
+                Ok((name, fingerprint_hash, role_name, role_id)) => {
                     return Response {
                         status: "success".to_string(),
                         checkpoint_id: req.checkpoint_id,
                         worker_id: req.worker_id,
-                        worker_fingerprint: req.worker_fingerprint,
+                        worker_fingerprint: fingerprint_hash,
                         location: req.location,
-                        authorized_roles: req.authorized_roles
+                        authorized_roles: req.authorized_roles,
+                        role_id: role_id,
                     }
                 }
                 Err(_) => {
@@ -137,17 +156,16 @@ async fn handle_port_server_request(conn: Arc<Mutex<Connection>>, req: Request) 
                         worker_fingerprint: None,
                         location: None,
                         authorized_roles: None,
+                        role_id: None,
                     }
                 }
             }
         }
         "ENROLL" => {
-            //TODO: add worker name to the data structure
-
             let exists: bool = conn
                 .query_row(
                     "SELECT EXISTS(SELECT 1 FROM employees WHERE name = ?1 AND role_id = ?2)",
-                    params![req.worker_id, req.worker_id],
+                    params![req.worker_name, req.worker_id],
                     |row| row.get(0),
                 )
                 .unwrap_or(false);
@@ -160,12 +178,14 @@ async fn handle_port_server_request(conn: Arc<Mutex<Connection>>, req: Request) 
                     worker_fingerprint: None,
                     location: None,
                     authorized_roles: None,
+                    role_id: None,
                 };
             }
 
-            //TODO: See above
-            let result = conn.execute("INSERT INTO employees (name, fingerprint_hash, role_id) VALUES (?1, ?2, ?3)",
-                            params![req.worker_id, "dummy_hash", req.worker_id]);
+            let result = conn.execute(
+                "INSERT INTO employees (name, fingerprint_hash, role_id) VALUES (?1, ?2, ?3)",
+                params![req.worker_name, req.worker_fingerprint, req.worker_id],
+            );
 
             match result {
                 Ok(result) => {
@@ -176,6 +196,7 @@ async fn handle_port_server_request(conn: Arc<Mutex<Connection>>, req: Request) 
                         worker_fingerprint: None,
                         location: None,
                         authorized_roles: None,
+                        role_id: None,
                     };
                 }
 
@@ -187,15 +208,15 @@ async fn handle_port_server_request(conn: Arc<Mutex<Connection>>, req: Request) 
                         worker_fingerprint: None,
                         location: None,
                         authorized_roles: None,
+                        role_id: None,
                     };
                 }
             }
         }
         "UPDATE" => {
-            //TODO: add role id to request data structure
             let result = conn.execute(
                 "UPDATE employees SET role_id = ?1 WHERE id = ?2",
-                params![req.worker_id, req.worker_id],
+                params![req.role_id, req.worker_id],
             );
             match result {
                 Ok(affected) => {
@@ -207,6 +228,7 @@ async fn handle_port_server_request(conn: Arc<Mutex<Connection>>, req: Request) 
                             worker_fingerprint: None,
                             location: None,
                             authorized_roles: None,
+                            role_id: None,
                         };
                     } else {
                         return Response {
@@ -216,6 +238,7 @@ async fn handle_port_server_request(conn: Arc<Mutex<Connection>>, req: Request) 
                             worker_fingerprint: None,
                             location: None,
                             authorized_roles: None,
+                            role_id: None,
                         };
                     }
                 }
@@ -227,12 +250,16 @@ async fn handle_port_server_request(conn: Arc<Mutex<Connection>>, req: Request) 
                         worker_fingerprint: None,
                         location: None,
                         authorized_roles: None,
+                        role_id: None,
                     };
                 }
             }
         }
         "DELETE" => {
-            let result = conn.execute("DELETE FROM employees WHERE id = ?1", params![req.worker_id]);
+            let result = conn.execute(
+                "DELETE FROM employees WHERE id = ?1",
+                params![req.worker_id],
+            );
             match result {
                 Ok(affected) => {
                     if affected > 0 {
@@ -243,6 +270,7 @@ async fn handle_port_server_request(conn: Arc<Mutex<Connection>>, req: Request) 
                             worker_fingerprint: None,
                             location: None,
                             authorized_roles: None,
+                            role_id: None,
                         };
                     } else {
                         return Response {
@@ -252,6 +280,7 @@ async fn handle_port_server_request(conn: Arc<Mutex<Connection>>, req: Request) 
                             worker_fingerprint: None,
                             location: None,
                             authorized_roles: None,
+                            role_id: None,
                         };
                     }
                 }
@@ -263,6 +292,7 @@ async fn handle_port_server_request(conn: Arc<Mutex<Connection>>, req: Request) 
                         worker_fingerprint: None,
                         location: None,
                         authorized_roles: None,
+                        role_id: None,
                     };
                 }
             }
@@ -276,6 +306,7 @@ async fn handle_port_server_request(conn: Arc<Mutex<Connection>>, req: Request) 
                 worker_fingerprint: None,
                 location: None,
                 authorized_roles: None,
+                role_id: None,
             };
         }
     }
@@ -313,6 +344,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             worker_fingerprint: None,
                             location: None,
                             authorized_roles: None,
+                            role_id: None,
                         },
                     };
 
