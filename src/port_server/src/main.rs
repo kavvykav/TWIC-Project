@@ -1,3 +1,6 @@
+/****************
+    IMPORTS
+****************/
 use ctrlc;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -9,7 +12,9 @@ use std::{
     thread,
     time::Duration,
 };
-
+/*****************
+    CONSTANTS
+*****************/
 const SERVER_ADDR: &str = "127.0.0.1:8080";
 const DATABASE_ADDR: &str = "127.0.0.1:3036";
 
@@ -33,6 +38,8 @@ enum CheckpointState {
     AuthFailed,
 }
 
+//Authentication response struct
+
 #[derive(Deserialize, Serialize, Clone)]
 struct AuthResponse {
     status: CheckpointState,
@@ -49,6 +56,8 @@ struct EnrollUpdateDeleteResponse {
     status: EnrollUpdateDeleteStatus,
 }
 
+// Format for requests to the Database
+
 #[derive(Deserialize, Serialize, Clone)]
 struct DatabaseRequest {
     command: String,
@@ -61,6 +70,8 @@ struct DatabaseRequest {
     role_id: Option<u32>,
 }
 
+// Database response format
+
 #[derive(Deserialize, Serialize, Clone)]
 struct DatabaseReply {
     status: String,
@@ -71,6 +82,11 @@ struct DatabaseReply {
     role_id: Option<String>,
 }
 
+/*
+ * Name: set_stream_timeout
+ * Function: Avoid a tcp connection hanging by setting timeouts for r/w
+*/
+
 fn set_stream_timeout(stream: &std::net::TcpStream, duration: Duration) {
     stream
         .set_read_timeout(Some(duration))
@@ -79,6 +95,14 @@ fn set_stream_timeout(stream: &std::net::TcpStream, duration: Duration) {
         .set_write_timeout(Some(duration))
         .expect("Failed to set write timeout");
 }
+
+/*
+ * Name: authenticate_rfid
+ * Function: Validates RFID through DB Check. Steps:
+ * 1. Create DatabaseRequest
+ * 2. Compare received ID
+ * 3. Return True or False
+*/
 
 fn authenticate_rfid(rfid_tag: &Option<u32>) -> bool {
     if let Some(rfid) = rfid_tag {
@@ -107,6 +131,10 @@ fn authenticate_rfid(rfid_tag: &Option<u32>) -> bool {
     }
 }
 
+/*
+ * Name: authenticate_fingerprint
+ * Function: Similar to rfid with logic
+*/
 fn authenticate_fingerprint(rfid_tag: &Option<u32>, fingerprint_hash: &Option<String>) -> bool {
     if let (Some(rfid), Some(fingerprint)) = (rfid_tag, fingerprint_hash) {
         let request = DatabaseRequest {
@@ -134,6 +162,16 @@ fn authenticate_fingerprint(rfid_tag: &Option<u32>, fingerprint_hash: &Option<St
         return false;
     }
 }
+
+/*
+ * Name: query_database
+ * Function: Establish connection and Manipulate/Interact with data in database
+ * Steps:
+ * 1. Create DatabaseRequest with operation
+ * 2. Send through TcpStream
+ * 3. Receive DatabaseReply
+ * 4. Decipher response
+*/
 
 fn query_database(database_addr: &str, request: &DatabaseRequest) -> Result<DatabaseReply, String> {
     let request_json = serde_json::to_string(request)
@@ -174,7 +212,16 @@ fn query_database(database_addr: &str, request: &DatabaseRequest) -> Result<Data
 // TODO: for each functionality, call the synchronization function with the central
 // database, still needs to be developed.
 
-// Function to handle client communication
+/*
+ * Name: handle_client
+ * Function: Handles communication with client
+ * Steps:
+ * 1. Read data using BufReader
+ * 2. Parse DatabaseRequest
+ * 3. Handles according to 'command' (Refer to state machine)
+ * 4. Respond with result to client, update CheckpointState
+*/
+
 fn handle_client(
     stream: Arc<Mutex<TcpStream>>,
     client_id: usize,
