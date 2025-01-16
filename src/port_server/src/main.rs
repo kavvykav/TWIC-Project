@@ -38,42 +38,11 @@ enum CheckpointState {
     AuthFailed,
 }
 
-// Authentication response struct
-//TODO: remove these and lump it in with the DatabaseReply struct
-
-#[derive(Deserialize, Serialize, Clone)]
-struct AuthResponse {
-    status: CheckpointState,
-}
-impl AuthResponse {
-    pub fn new(state: CheckpointState) -> Self {
-        AuthResponse { status: state }
-    }
-}
 
 #[derive(Deserialize, Serialize, Clone)]
 enum EnrollUpdateDeleteStatus {
     Success,
     Failed,
-}
-
-#[derive(Deserialize, Serialize, Clone)]
-struct EnrollUpdateDeleteResponse {
-    status: EnrollUpdateDeleteStatus,
-}
-
-impl EnrollUpdateDeleteResponse {
-    pub fn success() -> Self {
-        EnrollUpdateDeleteResponse {
-            status: EnrollUpdateDeleteStatus::Success,
-        }
-    }
-
-    pub fn failed() -> Self {
-        EnrollUpdateDeleteResponse {
-            status: EnrollUpdateDeleteStatus::Failed,
-        }
-    }
 }
 
 // Format for requests to the Database
@@ -100,6 +69,8 @@ struct DatabaseReply {
     fingerprint: Option<String>,
     data: Option<String>,
     role_id: Option<String>,
+    auth_response: Option<CheckpointState>,
+    update_delete_enroll_result: Option<EnrollUpdateDeleteStatus>,
 }
 
 impl DatabaseReply {
@@ -111,6 +82,8 @@ impl DatabaseReply {
             fingerprint: None,
             data: None,
             role_id: None,
+            auth_response: None,
+            update_delete_enroll_result: None,
         }
     }
 
@@ -122,6 +95,20 @@ impl DatabaseReply {
             fingerprint: None,
             data: None,
             role_id: None,
+            auth_response: None,
+            update_delete_enroll_result: None,
+        }
+    }
+    pub fn auth_reply(state: CheckpointState) -> Self {
+        DatabaseReply {
+            status: "success".to_string(),
+            checkpoint_id: None,
+            worker_id: None,
+            fingerprint: None,
+            data: None,
+            role_id: None,
+            auth_response: Some(state),
+            update_delete_enroll_result: None,
         }
     }
 }
@@ -364,25 +351,25 @@ fn handle_authenticate(
         CheckpointState::WaitForRfid => {
             if authenticate_rfid(&request.worker_id) {
                 client.state = CheckpointState::WaitForFingerprint;
-                AuthResponse::new(CheckpointState::WaitForFingerprint)
+                DatabaseReply::auth_reply(CheckpointState::WaitForFingerprint)
             } else {
                 client.state = CheckpointState::AuthFailed;
-                AuthResponse::new(CheckpointState::AuthFailed)
+                DatabaseReply::auth_reply(CheckpointState::AuthFailed)
             }
         }
         CheckpointState::WaitForFingerprint => {
             if authenticate_fingerprint(&request.worker_id, &request.worker_fingerprint) {
                 client.state = CheckpointState::AuthSuccessful;
-                AuthResponse::new(CheckpointState::AuthSuccessful)
+                DatabaseReply::auth_reply(CheckpointState::AuthSuccessful)
             } else {
                 client.state = CheckpointState::AuthFailed;
-                AuthResponse::new(CheckpointState::AuthFailed)
+                DatabaseReply::auth_reply(CheckpointState::AuthFailed)
             }
         }
         CheckpointState::AuthSuccessful | CheckpointState::AuthFailed => {
             thread::sleep(Duration::from_secs(5));
             client.state = CheckpointState::WaitForRfid;
-            AuthResponse::new(CheckpointState::WaitForRfid)
+            DatabaseReply::auth_reply(CheckpointState::WaitForRfid)
         }
     };
 
@@ -400,9 +387,9 @@ fn handle_database_request(
 ) -> Result<(), String> {
     let reply = query_database(DATABASE_ADDR, &request).map(|db_reply| {
         if db_reply.status == "success" {
-            EnrollUpdateDeleteResponse::success()
+            DatabaseReply::success(request.checkpoint_id)
         } else {
-            EnrollUpdateDeleteResponse::failed()
+            DatabaseReply::error()
         }
     }).map_err(|e| format!("Database query failed: {}", e))?;
     send_response(&reply, stream)

@@ -108,7 +108,7 @@ fn initialize_database() -> Result<Connection> {
  */
 async fn handle_port_server_request(conn: Arc<Mutex<Connection>>, req: Request) -> Response {
     let conn = conn.lock().await;
-    println!("Received a command");
+    println!("Received a command: {}", req.command);
 
     match req.command.as_str() {
         "INIT_REQUEST" => {
