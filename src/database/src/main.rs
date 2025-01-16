@@ -108,6 +108,7 @@ fn initialize_database() -> Result<Connection> {
  */
 async fn handle_port_server_request(conn: Arc<Mutex<Connection>>, req: Request) -> Response {
     let conn = conn.lock().await;
+    println!("Received a command");
 
     match req.command.as_str() {
         "INIT_REQUEST" => {
@@ -131,7 +132,8 @@ async fn handle_port_server_request(conn: Arc<Mutex<Connection>>, req: Request) 
                         role_id: None,
                     };
                 }
-                Err(_) => {
+                Err(e) => {
+                    eprintln!("Issue with adding checkpoint to the database: {}", e);
                     return Response {
                         status: "error".to_string(),
                         checkpoint_id: None,
@@ -173,7 +175,8 @@ async fn handle_port_server_request(conn: Arc<Mutex<Connection>>, req: Request) 
                         role_id: role_id,
                     }
                 }
-                Err(_) => {
+                Err(e) => {
+                    eprintln!("Could not perform authentication: {}", e);
                     return Response {
                         status: "error".to_string(),
                         checkpoint_id: None,
@@ -196,6 +199,7 @@ async fn handle_port_server_request(conn: Arc<Mutex<Connection>>, req: Request) 
                 .unwrap_or(false);
 
             if exists {
+                println!("User already exists!");
                 return Response {
                     status: "error".to_string(),
                     checkpoint_id: None,
@@ -225,7 +229,8 @@ async fn handle_port_server_request(conn: Arc<Mutex<Connection>>, req: Request) 
                     };
                 }
 
-                Err(_) => {
+                Err(e) => {
+                    eprintln!("Could not enroll user {}", e);
                     return Response {
                         status: "error".to_string(),
                         checkpoint_id: None,
@@ -256,6 +261,7 @@ async fn handle_port_server_request(conn: Arc<Mutex<Connection>>, req: Request) 
                             role_id: None,
                         };
                     } else {
+                        println!("Zero affected users");
                         return Response {
                             status: "error".to_string(),
                             checkpoint_id: None,
@@ -267,7 +273,8 @@ async fn handle_port_server_request(conn: Arc<Mutex<Connection>>, req: Request) 
                         };
                     }
                 }
-                Err(_) => {
+                Err(e) => {
+                    eprintln!("An error occured with adding a user: {}", e);
                     return Response {
                         status: "error".to_string(),
                         checkpoint_id: None,
@@ -298,6 +305,7 @@ async fn handle_port_server_request(conn: Arc<Mutex<Connection>>, req: Request) 
                             role_id: None,
                         };
                     } else {
+                        println!("Affected users is zero");
                         return Response {
                             status: "error".to_string(),
                             checkpoint_id: None,
@@ -309,7 +317,8 @@ async fn handle_port_server_request(conn: Arc<Mutex<Connection>>, req: Request) 
                         };
                     }
                 }
-                Err(_) => {
+                Err(e) => {
+                    eprintln!("Error with deleting a worker: {}", e);
                     return Response {
                         status: "error".to_string(),
                         checkpoint_id: None,

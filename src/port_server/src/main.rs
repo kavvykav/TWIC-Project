@@ -38,11 +38,17 @@ enum CheckpointState {
     AuthFailed,
 }
 
-//Authentication response struct
+// Authentication response struct
+//TODO: remove these and lump it in with the DatabaseReply struct
 
 #[derive(Deserialize, Serialize, Clone)]
 struct AuthResponse {
     status: CheckpointState,
+}
+impl AuthResponse {
+    pub fn new(state: CheckpointState) -> Self {
+        AuthResponse { status: state }
+    }
 }
 
 #[derive(Deserialize, Serialize, Clone)]
@@ -54,6 +60,20 @@ enum EnrollUpdateDeleteStatus {
 #[derive(Deserialize, Serialize, Clone)]
 struct EnrollUpdateDeleteResponse {
     status: EnrollUpdateDeleteStatus,
+}
+
+impl EnrollUpdateDeleteResponse {
+    pub fn success() -> Self {
+        EnrollUpdateDeleteResponse {
+            status: EnrollUpdateDeleteStatus::Success,
+        }
+    }
+
+    pub fn failed() -> Self {
+        EnrollUpdateDeleteResponse {
+            status: EnrollUpdateDeleteStatus::Failed,
+        }
+    }
 }
 
 // Format for requests to the Database
@@ -82,11 +102,34 @@ struct DatabaseReply {
     role_id: Option<String>,
 }
 
+impl DatabaseReply {
+    pub fn success(checkpoint_id: Option<u32>) -> Self {
+        DatabaseReply {
+            status: "success".to_string(),
+            checkpoint_id,
+            worker_id: None,
+            fingerprint: None,
+            data: None,
+            role_id: None,
+        }
+    }
+
+    pub fn error() -> Self {
+        DatabaseReply {
+            status: "error".to_string(),
+            checkpoint_id: None,
+            worker_id: None,
+            fingerprint: None,
+            data: None,
+            role_id: None,
+        }
+    }
+}
+
 /*
  * Name: set_stream_timeout
  * Function: Avoid a tcp connection hanging by setting timeouts for r/w
 */
-
 fn set_stream_timeout(stream: &std::net::TcpStream, duration: Duration) {
     stream
         .set_read_timeout(Some(duration))
@@ -183,8 +226,7 @@ fn query_database(database_addr: &str, request: &DatabaseRequest) -> Result<Data
     stream
         .write_all(
             format!(
-                "{}
-",
+                "{}",
                 request_json
             )
             .as_bytes(),
@@ -209,19 +251,10 @@ fn query_database(database_addr: &str, request: &DatabaseRequest) -> Result<Data
     Ok(response)
 }
 
-// TODO: for each functionality, call the synchronization function with the central
-// database, still needs to be developed.
-
 /*
  * Name: handle_client
- * Function: Handles communication with client
- * Steps:
- * 1. Read data using BufReader
- * 2. Parse DatabaseRequest
- * 3. Handles according to 'command' (Refer to state machine)
- * 4. Respond with result to client, update CheckpointState
-*/
-
+ * Function: Allows a client to connect, instantiates a buffer and a reader and polls for oncoming requests.
+ */
 fn handle_client(
     stream: Arc<Mutex<TcpStream>>,
     client_id: usize,
@@ -234,226 +267,163 @@ fn handle_client(
     let mut buffer = Vec::new();
 
     while running.load(Ordering::SeqCst) {
-        buffer.clear();
-        match reader.read_until(b'\0', &mut buffer) {
-            Ok(0) => {
-                println!("Client {} disconnected", client_id);
-                clients.lock().unwrap().remove(&client_id);
-                break;
-            }
-            Ok(_) => {
-                let buffer_str = String::from_utf8(buffer.clone())
-                    .expect("Failed to convert buffer to a string format");
-                let trimmed_request = buffer_str.trim_end_matches('\0').trim();
-                let mut request: Result<DatabaseRequest, _> = serde_json::from_str(trimmed_request);
-
-                let mut request = request.unwrap(); // Take ownership once
-
-                match request.command.as_str() {
-                    "INIT_REQUEST" => {
-                        let checkpoint_reply = match query_database(DATABASE_ADDR, &request) {
-                            Ok(db_reply) => {
-                                if db_reply.status == "success" {
-                                    println!("Received confirmation from the database that the checkpoint was added");
-                                    DatabaseReply {
-                                        status: "success".to_string(),
-                                        checkpoint_id: db_reply.checkpoint_id,
-                                        worker_id: None,
-                                        fingerprint: None,
-                                        data: None,
-                                        role_id: None,
-                                    }
-                                } else {
-                                    println!("Received from the database that the checkpoint was not added");
-                                    DatabaseReply {
-                                        status: "error".to_string(),
-                                        checkpoint_id: None,
-                                        worker_id: None,
-                                        fingerprint: None,
-                                        data: None,
-                                        role_id: None,
-                                    }
-                                }
-                            }
-                            Err(e) => {
-                                eprintln!("Error with querying the central database: {}", e);
-                                break;
-                            }
-                        };
-                        // Send response back to client
-                        let mut response_str = serde_json::to_string(&checkpoint_reply).unwrap();
-                        response_str.push('\0');
-                        let _ = stream
-                            .lock()
-                            .unwrap()
-                            .write_all(format!("{}\n", response_str).as_bytes());
-                    }
-                    // Handle authentication logic using a state machine
-                    "AUTHENTICATE" => {
-                        match clients.lock().unwrap().get_mut(&client_id) {
-                            Some(client) => {
-                                let response = match client.state {
-                                    CheckpointState::WaitForRfid => {
-                                        if authenticate_rfid(&request.worker_id) {
-                                            client.state = CheckpointState::WaitForFingerprint;
-                                            AuthResponse {
-                                                status: CheckpointState::WaitForFingerprint,
-                                            }
-                                        } else {
-                                            client.state = CheckpointState::AuthFailed;
-                                            AuthResponse {
-                                                status: CheckpointState::AuthFailed,
-                                            }
-                                        }
-                                    }
-                                    CheckpointState::WaitForFingerprint => {
-                                        if authenticate_fingerprint(
-                                            &request.worker_id,
-                                            &request.worker_fingerprint,
-                                        ) {
-                                            client.state = CheckpointState::AuthSuccessful;
-                                            AuthResponse {
-                                                status: CheckpointState::AuthSuccessful,
-                                            }
-                                        } else {
-                                            client.state = CheckpointState::AuthFailed;
-                                            AuthResponse {
-                                                status: CheckpointState::AuthFailed,
-                                            }
-                                        }
-                                    }
-                                    CheckpointState::AuthSuccessful => {
-                                        thread::sleep(Duration::from_secs(5));
-                                        client.state = CheckpointState::WaitForRfid;
-                                        AuthResponse {
-                                            status: CheckpointState::WaitForRfid,
-                                        }
-                                    }
-                                    CheckpointState::AuthFailed => {
-                                        thread::sleep(Duration::from_secs(5));
-                                        client.state = CheckpointState::WaitForRfid;
-                                        AuthResponse {
-                                            status: CheckpointState::WaitForRfid,
-                                        }
-                                    }
-                                };
-                                // Send response back to client
-                                let response_str = serde_json::to_string(&response).unwrap();
-                                let _ = stream
-                                    .lock()
-                                    .unwrap()
-                                    .write_all(format!("{}\n", response_str).as_bytes());
-                            }
-                            None => {
-                                eprintln!("Error when getting a client");
-                                break;
-                            }
-                        }
-                    }
-
-                    // For these functionalities, a query to the central database
-                    // is performed, and the port server simply sends its response
-                    // back to the checkpoint.
-                    "ENROLL" => {
-                        let checkpoint_reply = match query_database(DATABASE_ADDR, &request) {
-                            Ok(db_reply) => {
-                                if db_reply.status == "success" {
-                                    EnrollUpdateDeleteResponse {
-                                        status: EnrollUpdateDeleteStatus::Success,
-                                    }
-                                } else {
-                                    EnrollUpdateDeleteResponse {
-                                        status: EnrollUpdateDeleteStatus::Failed,
-                                    }
-                                }
-                            }
-                            Err(e) => {
-                                eprintln!("Failed to query database: {}", e);
-                                EnrollUpdateDeleteResponse {
-                                    status: EnrollUpdateDeleteStatus::Failed,
-                                }
-                            }
-                        };
-                        // Send response back to client
-                        let response_str = serde_json::to_string(&checkpoint_reply).unwrap();
-                        let _ = stream
-                            .lock()
-                            .unwrap()
-                            .write_all(format!("{}\n", response_str).as_bytes());
-                    }
-
-                    "UPDATE" => {
-                        let checkpoint_reply = match query_database(DATABASE_ADDR, &request) {
-                            Ok(db_reply) => {
-                                if db_reply.status == "success" {
-                                    EnrollUpdateDeleteResponse {
-                                        status: EnrollUpdateDeleteStatus::Success,
-                                    }
-                                } else {
-                                    EnrollUpdateDeleteResponse {
-                                        status: EnrollUpdateDeleteStatus::Failed,
-                                    }
-                                }
-                            }
-                            Err(e) => {
-                                eprintln!("Failed to query database: {}", e);
-                                EnrollUpdateDeleteResponse {
-                                    status: EnrollUpdateDeleteStatus::Failed,
-                                }
-                            }
-                        };
-                        // Send response back to client
-                        let mut response_str = serde_json::to_string(&checkpoint_reply).unwrap();
-                        response_str.push('\0');
-                        let _ = stream
-                            .lock()
-                            .unwrap()
-                            .write_all(format!("{}\n", response_str).as_bytes());
-                    }
-
-                    "DELETE" => {
-                        let checkpoint_reply = match query_database(DATABASE_ADDR, &request) {
-                            Ok(db_reply) => {
-                                if db_reply.status == "success" {
-                                    EnrollUpdateDeleteResponse {
-                                        status: EnrollUpdateDeleteStatus::Success,
-                                    }
-                                } else {
-                                    EnrollUpdateDeleteResponse {
-                                        status: EnrollUpdateDeleteStatus::Failed,
-                                    }
-                                }
-                            }
-                            Err(e) => {
-                                eprintln!("Failed to query database: {}", e);
-                                EnrollUpdateDeleteResponse {
-                                    status: EnrollUpdateDeleteStatus::Failed,
-                                }
-                            }
-                        };
-                        // Send response back to client
-                        let response_str = serde_json::to_string(&checkpoint_reply).unwrap();
-                        let _ = stream
-                            .lock()
-                            .unwrap()
-                            .write_all(format!("{}\n", response_str).as_bytes());
-                    }
-
-                    _ => {
-                        eprintln!("Unknown command");
-                        break;
-                    }
-                }
-            }
-            Err(e) => {
-                eprintln!("Error reading from client {}: {}", client_id, e);
-                break;
-            }
+        if let Err(e) = read_request(&mut reader, &stream, client_id, &clients, &mut buffer) {
+            eprintln!("Error processing client {}: {}", client_id, e);
+            break;
         }
     }
 
     println!("Shutting down thread for client {}", client_id);
+    clients.lock().unwrap().remove(&client_id);
 }
+
+/*
+ * Name: read_request
+ * Function: Reads and deserializes an oncoming request.
+ */
+fn read_request(
+    reader: &mut BufReader<TcpStream>,
+    stream: &Arc<Mutex<TcpStream>>,
+    client_id: usize,
+    clients: &Arc<Mutex<HashMap<usize, Client>>>,
+    buffer: &mut Vec<u8>,
+) -> Result<(), String> {
+    buffer.clear();
+    match reader.read_until(b'\0', buffer) {
+        Ok(0) => Err("Client disconnected".into()),
+        Ok(_) => {
+            buffer.pop();
+            let request_str = parse_request(buffer)?;
+            let request: DatabaseRequest = serde_json::from_str(&request_str)
+                .map_err(|e| format!("Failed to parse request: {}", e))?;
+            parse_command_from_request(request, stream, client_id, clients)?;
+            Ok(())
+        }
+        Err(e) => Err(format!("Error reading from client: {}", e)),
+    }
+}
+
+fn parse_request(buffer: &[u8]) -> Result<String, String> {
+    String::from_utf8(buffer.to_vec())
+        .map(|s| s.trim_end_matches('\0').trim().to_string())
+        .map_err(|e| format!("Failed to convert buffer to string: {}", e))
+}
+
+/*
+ * Name: parse_command_from_request
+ * Function: Extracts the command from the request and calls the appropriate handler.
+ */
+fn parse_command_from_request(
+    request: DatabaseRequest,
+    stream: &Arc<Mutex<TcpStream>>,
+    client_id: usize,
+    clients: &Arc<Mutex<HashMap<usize, Client>>>,
+) -> Result<(), String> {
+    match request.command.as_str() {
+        "INIT_REQUEST" => handle_init_request(request, stream),
+        "AUTHENTICATE" => handle_authenticate(request, stream, client_id, clients),
+        "ENROLL" => handle_database_request(request, stream, "ENROLL"),
+        "UPDATE" => handle_database_request(request, stream, "UPDATE"),
+        "DELETE" => handle_database_request(request, stream, "DELETE"),
+        _ => Err("Unknown command".into()),
+    }
+}
+
+/*
+ * Name: handle_init_request
+ * Function: Handler for a checkpoint init_request.
+ */
+fn handle_init_request(
+    request: DatabaseRequest,
+    stream: &Arc<Mutex<TcpStream>>,
+) -> Result<(), String> {
+    let reply = query_database(DATABASE_ADDR, &request).map(|db_reply| {
+        if db_reply.status == "success" {
+            DatabaseReply::success(Some(db_reply.checkpoint_id.unwrap_or(0)))
+        } else {
+            DatabaseReply::error()
+        }
+    }).map_err(|e| format!("Database query failed: {}", e))?;
+    send_response(&reply, stream)
+}
+
+/*
+ * Name: handle_authenticate
+ * Function: Server logic for an authenrication request modelled by a state machine.
+ */
+fn handle_authenticate(
+    request: DatabaseRequest,
+    stream: &Arc<Mutex<TcpStream>>,
+    client_id: usize,
+    clients: &Arc<Mutex<HashMap<usize, Client>>>,
+) -> Result<(), String> {
+    let mut clients = clients.lock().unwrap();
+    let client = clients.get_mut(&client_id).ok_or("Client not found")?;
+
+    let response = match client.state {
+        CheckpointState::WaitForRfid => {
+            if authenticate_rfid(&request.worker_id) {
+                client.state = CheckpointState::WaitForFingerprint;
+                AuthResponse::new(CheckpointState::WaitForFingerprint)
+            } else {
+                client.state = CheckpointState::AuthFailed;
+                AuthResponse::new(CheckpointState::AuthFailed)
+            }
+        }
+        CheckpointState::WaitForFingerprint => {
+            if authenticate_fingerprint(&request.worker_id, &request.worker_fingerprint) {
+                client.state = CheckpointState::AuthSuccessful;
+                AuthResponse::new(CheckpointState::AuthSuccessful)
+            } else {
+                client.state = CheckpointState::AuthFailed;
+                AuthResponse::new(CheckpointState::AuthFailed)
+            }
+        }
+        CheckpointState::AuthSuccessful | CheckpointState::AuthFailed => {
+            thread::sleep(Duration::from_secs(5));
+            client.state = CheckpointState::WaitForRfid;
+            AuthResponse::new(CheckpointState::WaitForRfid)
+        }
+    };
+
+    send_response(&response, stream)
+}
+
+/*
+ * Name: handle_database_request
+ * Function: handles Update, Enroll and Delete requests from the cenralized database.
+ */
+fn handle_database_request(
+    request: DatabaseRequest,
+    stream: &Arc<Mutex<TcpStream>>,
+    command: &str,
+) -> Result<(), String> {
+    let reply = query_database(DATABASE_ADDR, &request).map(|db_reply| {
+        if db_reply.status == "success" {
+            EnrollUpdateDeleteResponse::success()
+        } else {
+            EnrollUpdateDeleteResponse::failed()
+        }
+    }).map_err(|e| format!("Database query failed: {}", e))?;
+    send_response(&reply, stream)
+}
+
+/*
+ * Name: send_response
+ * Function: sends the result of the request back to the corresponding checkpoint.
+ */
+fn send_response<T: serde::Serialize>(
+    response: &T,
+    stream: &Arc<Mutex<TcpStream>>,
+) -> Result<(), String> {
+    let mut response_str = serde_json::to_string(response)
+        .map_err(|e| format!("Failed to serialize response: {}", e))?;
+    response_str.push('\0');
+    stream.lock().unwrap()
+        .write_all(response_str.as_bytes())
+        .map_err(|e| format!("Failed to send response: {}", e))
+}
+
 // Main server function
 fn main() {
     let listener = TcpListener::bind(SERVER_ADDR).expect("Failed to bind address");
