@@ -38,7 +38,6 @@ enum CheckpointState {
     AuthFailed,
 }
 
-
 #[derive(Deserialize, Serialize, Clone)]
 enum EnrollUpdateDeleteStatus {
     Success,
@@ -211,13 +210,7 @@ fn query_database(database_addr: &str, request: &DatabaseRequest) -> Result<Data
         .map_err(|e| format!("Failed to connect to database: {}", e))?;
 
     stream
-        .write_all(
-            format!(
-                "{}",
-                request_json
-            )
-            .as_bytes(),
-        )
+        .write_all(format!("{}", request_json).as_bytes())
         .map_err(|e| format!("Failed to send request to database: {}", e))?;
 
     let mut reader = BufReader::new(&mut stream);
@@ -319,19 +312,22 @@ fn parse_command_from_request(
 /*
  * Name: handle_init_request
  * Function: Handler for a checkpoint init_request.
+ * Registers checkpoint to the database
  */
 fn handle_init_request(
     request: DatabaseRequest,
     stream: &Arc<Mutex<TcpStream>>,
 ) -> Result<(), String> {
-    let reply = query_database(DATABASE_ADDR, &request).map(|db_reply| {
-        if db_reply.status == "success" {
-            DatabaseReply::success(Some(db_reply.checkpoint_id.unwrap_or(0)))
-        } else {
-            DatabaseReply::error()
-        }
-    }).map_err(|e| format!("Database query failed: {}", e))?;
-    send_response(&reply, stream)
+    let reply = query_database(DATABASE_ADDR, &request)
+        .map(|db_reply| {
+            if db_reply.status == "success" {
+                DatabaseReply::success(Some(db_reply.checkpoint_id.unwrap_or(0)))
+            } else {
+                DatabaseReply::error()
+            }
+        })
+        .map_err(|e| format!("Database query failed: {}", e))?;
+    send_response(&reply, stream).map_err(|e| e.to_string())
 }
 
 /*
@@ -372,8 +368,7 @@ fn handle_authenticate(
             DatabaseReply::auth_reply(CheckpointState::WaitForRfid)
         }
     };
-
-    send_response(&response, stream)
+    send_response(&response, stream).map_err(|e| e.to_string())
 }
 
 /*
@@ -385,30 +380,30 @@ fn handle_database_request(
     stream: &Arc<Mutex<TcpStream>>,
     command: &str,
 ) -> Result<(), String> {
-    let reply = query_database(DATABASE_ADDR, &request).map(|db_reply| {
-        if db_reply.status == "success" {
-            DatabaseReply::success(request.checkpoint_id)
-        } else {
-            DatabaseReply::error()
-        }
-    }).map_err(|e| format!("Database query failed: {}", e))?;
-    send_response(&reply, stream)
+    let reply = query_database(DATABASE_ADDR, &request)
+        .map(|db_reply| {
+            if db_reply.status == "success" {
+                DatabaseReply::success(request.checkpoint_id)
+            } else {
+                DatabaseReply::error()
+            }
+        })
+        .map_err(|e| format!("Database query failed: {}", e))?;
+    send_response(&reply, stream).map_err(|e| e.to_string())
 }
 
 /*
  * Name: send_response
  * Function: sends the result of the request back to the corresponding checkpoint.
  */
-fn send_response<T: serde::Serialize>(
+fn send_response<T: Serialize, W: Write>(
     response: &T,
-    stream: &Arc<Mutex<TcpStream>>,
-) -> Result<(), String> {
-    let mut response_str = serde_json::to_string(response)
-        .map_err(|e| format!("Failed to serialize response: {}", e))?;
-    response_str.push('\0');
-    stream.lock().unwrap()
-        .write_all(response_str.as_bytes())
-        .map_err(|e| format!("Failed to send response: {}", e))
+    stream: &Arc<Mutex<W>>,
+) -> Result<(), serde_json::Error> {
+    let serialized = serde_json::to_string(response)?; // Serialize the response
+    let mut guard = stream.lock().unwrap(); // Lock the stream for thread-safe access
+    guard.write_all(serialized.as_bytes()).unwrap(); // Write the serialized response
+    Ok(())
 }
 
 // Main server function
@@ -423,7 +418,7 @@ fn main() {
     let running = Arc::new(AtomicBool::new(true));
     let running_clone = Arc::clone(&running);
 
-    // Handle Ctrl+C for graceful shutdown
+    // Handle Ctrl+C for shutdown
     ctrlc::set_handler(move || {
         println!("\nShutting down server...");
         running_clone.store(false, Ordering::SeqCst);
@@ -485,4 +480,85 @@ fn main() {
     }
 
     println!("Server terminated successfully");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{Read, Write};
+    use std::sync::{Arc, Mutex};
+
+    // MockStream to simulate TcpStream for testing purposes
+    struct MockStream {
+        buffer: Arc<Mutex<Vec<u8>>>, // Shared buffer to store written data
+    }
+
+    impl MockStream {
+        // Create a new MockStream instance
+        fn new() -> Self {
+            MockStream {
+                buffer: Arc::new(Mutex::new(Vec::new())),
+            }
+        }
+
+        // Retrieve the current contents of the buffer
+        fn get_output(&self) -> Vec<u8> {
+            self.buffer.lock().unwrap().clone()
+        }
+    }
+
+    // Implement the Write trait for MockStream to handle writing to the buffer
+    impl Write for MockStream {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.buffer.lock().unwrap().extend_from_slice(buf); // Write data to the buffer
+            Ok(buf.len()) // Return the number of bytes written
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(()) // No-op for flushing
+        }
+    }
+
+    // Implement the Read trait for MockStream to handle reading from the buffer
+    impl Read for MockStream {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            let mut buffer = self.buffer.lock().unwrap(); // Lock the buffer for thread-safe access
+            let len = buffer.len().min(buf.len()); // Determine how much data to read
+            buf[..len].copy_from_slice(&buffer[..len]); // Copy data to the provided buffer
+            buffer.drain(..len); // Remove the read data from the buffer
+            Ok(len) // Return the number of bytes read
+        }
+    }
+
+    // Test for successful response serialization and sending
+    #[test]
+    fn test_send_response_success() {
+        let mock_stream = MockStream::new(); // Create a new MockStream
+        let mock_stream_arc = Arc::new(Mutex::new(mock_stream)); // Wrap it in Arc<Mutex> for thread safety
+
+        let response = DatabaseReply::success(Some(123)); // Create a test response
+        send_response(&response, &mock_stream_arc).expect("Failed to send response"); // Call the send_response function
+
+        let output = mock_stream_arc.lock().unwrap().get_output(); // Retrieve the data written to the MockStream
+        let output_str = String::from_utf8(output).expect("Invalid UTF-8 output"); // Convert to a UTF-8 string
+
+        let expected_response = serde_json::to_string(&response).unwrap(); // Expected serialized response
+        assert_eq!(output_str, expected_response); // Assert equality
+    }
+
+    // Test for error response serialization and sending
+    #[test]
+    fn test_send_response_error() {
+        let mock_stream = MockStream::new(); // Create a new MockStream
+        let mock_stream_arc = Arc::new(Mutex::new(mock_stream)); // Wrap it in Arc<Mutex> for thread safety
+
+        let response = DatabaseReply::error(); // Create an error response
+        send_response(&response, &mock_stream_arc).expect("Failed to send response"); // Call the send_response function
+
+        let output = mock_stream_arc.lock().unwrap().get_output(); // Retrieve the data written to the MockStream
+        let output_str = String::from_utf8(output).expect("Invalid UTF-8 output"); // Convert to a UTF-8 string
+
+        let expected_response = serde_json::to_string(&response).unwrap(); // Expected serialized response
+        assert_eq!(output_str, expected_response); // Assert equality
+    }
 }
