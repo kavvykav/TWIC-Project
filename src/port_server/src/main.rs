@@ -139,7 +139,7 @@ fn authenticate_rfid(rfid_tag: &Option<u32>) -> bool {
         let request = DatabaseRequest {
             command: "AUTHENTICATE".to_string(),
             checkpoint_id: None,
-            worker_id: None,
+            worker_id: Some(rfid.clone()),
             worker_fingerprint: None,
             location: None,
             authorized_roles: None,
@@ -346,6 +346,8 @@ fn handle_authenticate(
 ) -> Result<(), String> {
     let mut clients = clients.lock().unwrap();
     let client = clients.get_mut(&client_id).ok_or("Client not found")?;
+
+    println!("Worker ID is {}", request.worker_id.unwrap());
 
     let response = match client.state {
         CheckpointState::WaitForRfid => {

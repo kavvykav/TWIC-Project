@@ -74,19 +74,21 @@ impl CheckpointRequest {
             worker_name: None,
         };
     }
+
     pub fn rfid_auth_request(checkpoint_id: u32,
                       worker_id: u32,) -> CheckpointRequest {
         return CheckpointRequest {
             command: "AUTHENTICATE".to_string(),
             checkpoint_id: Some(checkpoint_id),
             worker_id: Some(worker_id),
-            worker_fingerprint: None,
+            worker_fingerprint: Some("dummy hash".to_string()),
             location: None,
             authorized_roles: None,
             role_id: None,
             worker_name: None,
         };
     }
+
     pub fn fingerprint_auth_req(checkpoint_id: u32,
                                 worker_id: u32,
                                 worker_fingerprint: String) -> CheckpointRequest {
@@ -102,6 +104,7 @@ impl CheckpointRequest {
             worker_name: None,
         };
     }
+
     pub fn enroll_req(checkpoint_id: u32,
                       worker_name: String,
                       worker_fingerprint: String,
@@ -118,6 +121,7 @@ impl CheckpointRequest {
             worker_name: Some(worker_name),
         };
     }
+
     pub fn update_req(checkpoint_id: u32,
                       worker_id: u32,
                       new_role_id: u32,
@@ -133,6 +137,7 @@ impl CheckpointRequest {
             worker_name: None,
         };
     }
+    
     pub fn delete_req(checkpoint_id: u32,
                       worker_id: u32) -> CheckpointRequest {
         return CheckpointRequest {
@@ -290,9 +295,11 @@ fn main() {
                     // Error check
                     if enroll_reply.status == "success".to_string() {
                         println!("User enrolled successfully!");
+                        thread::sleep(Duration::new(5, 0));
                         return;
                     } else {
                         println!("Error with enrolling the user");
+                        thread::sleep(Duration::new(5, 0));
                         return;
                     }
         
@@ -313,9 +320,11 @@ fn main() {
                     // Error check
                     if update_reply.status == "success".to_string() {
                         println!("User updated successfully!");
+                        thread::sleep(Duration::new(5, 0));
                         return;
                     } else {
                         println!("Error with updating the user");
+                        thread::sleep(Duration::new(5, 0));
                         return;
                     }
                 }
@@ -333,9 +342,11 @@ fn main() {
                     // Error check
                     if delete_reply.status == "success".to_string() {
                         println!("User deleted successfully!");
+                        thread::sleep(Duration::new(5, 0));
                         return;
                     } else {
                         println!("Error with deleting the user");
+                        thread::sleep(Duration::new(5, 0));
                         return;
                     }
                 }
@@ -344,7 +355,7 @@ fn main() {
                     loop {
                         // Collect card info (first layer of authentication)
                         println!("Please tap your card");
-                        let worker_id = 0xDEADBEEF;
+                        let worker_id = 1;
 
                         // Send information to port server
                         println!("Validating card...");
@@ -352,9 +363,11 @@ fn main() {
                         let auth_reply: CheckpointReply = send_and_receive(&mut stream, &rfid_auth_req);
                         if let Some(CheckpointState::AuthFailed) = auth_reply.auth_response {
                             println!("Authentication failed.");
+                            thread::sleep(Duration::new(5, 0));
                             continue;
                         } else {
                             println!("Please scan your fingerprint");
+                            thread::sleep(Duration::new(5, 0));
                         }
                         
         
@@ -364,6 +377,7 @@ fn main() {
                         let fingerprint_auth_reply: CheckpointReply = send_and_receive(&mut stream, &rfid_auth_req);
                         if let Some(CheckpointState::AuthFailed) = fingerprint_auth_reply.auth_response {
                             println!("Authentication failed.");
+                            thread::sleep(Duration::new(5, 0));
                             continue;
                         } else {
                             println!("Authentication successful");

@@ -199,24 +199,24 @@ async fn handle_port_server_request(conn: Arc<Mutex<Connection>>, req: Request) 
             }
         }
         "AUTHENTICATE" => {
-            let _result: Result<(Option<String>, Option<String>, Option<String>, Option<u32>), _> =
+            println!("Worker ID: {}", req.worker_id.unwrap());
+            let _result: Result<(Option<String>, Option<String>, Option<u32>), _> =
                 conn.query_row(
-                    "SELECT employees.name, employees.fingerprint_hash, roles.name, roles.id \
-    FROM employees \
-    JOIN roles ON employees.role_id = roles.id \
-    WHERE employees.id = ?1",
+                    "SELECT employees.name, employees.fingerprint_hash, roles.id \
+                     FROM employees \
+                     JOIN roles ON employees.role_id = roles.id \
+                     WHERE employees.id = ?1",
                     params![req.worker_id],
                     |row| {
                         Ok((
                             row.get(0)?, // employees.name
                             row.get(1)?, // employees.fingerprint_hash
-                            row.get(2)?, // roles.name
-                            row.get(3)?, // roles.id
+                            row.get(2)?, // roles.id
                         ))
                     },
                 );
             match _result {
-                Ok((name, fingerprint_hash, role_name, role_id)) => {
+                Ok((name, fingerprint_hash, role_id)) => {
                     if let (Some(checkpoint_id), Some(worker_id), Some(location), Some(authorized_roles)) = (
                         req.checkpoint_id,
                         req.worker_id,
