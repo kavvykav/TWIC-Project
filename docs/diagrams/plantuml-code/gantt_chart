@@ -2,30 +2,43 @@
 Project starts 2024-09-23
 [Define Requirements] starts 2024-09-23
 [Define Requirements] ends 2024-10-28
+[Define Requirements] is colored in LightBlue/Black
 [Project Proposal] starts 2024-09-30
 [Project Proposal] ends 2024-10-28
+[Project Proposal] is colored in LightBlue/Black
 [UML Diagrams] starts 2024-10-21
 [UML Diagrams] ends 2024-11-25
+[UML Diagrams] is colored in LightBlue/Black
 [Choice of Parts] starts 2024-10-21
 [Choice of Parts] ends 2024-10-21
+[Choice of Parts] is colored in LightBlue/Black
 [Progress Report] starts 2024-11-13
 [Progress Report] ends 2024-12-06
+[Progress Report] is colored in LightBlue/Black
 [Oral Presentation] starts 2024-12-30
 [Oral Presentation] ends 2025-01-24
+[Oral Presentation] is colored in Orange/LightGray
 [Establish Communication Between Server and Database] starts 2024-12-21
-[Database Creation] starts 2024-12-21
 [Establish Communication Between Server and Database] ends 2025-01-01
+[Establish Communication Between Server and Database] is colored in LightBlue/Black
+[Database Creation] starts 2024-12-21
 [Database Creation] ends 2025-01-06
+[Database Creation] is colored in LightBlue/Black
 [Database Testing] starts 2025-01-06
 [Database Testing] ends 2025-01-20
+[Database Testing] is colored in LightBlue/Black
 [Server Logic] starts 2025-01-06
 [Server Logic] ends 2025-01-20
+[Server Logic] is colored in Orange/LightGray
 [Hardware Testing] starts 2025-01-06
 [Hardware Testing] ends 2025-01-13
+[Hardware Testing] is colored in Orange/LightGray
 [Software Integration] starts 2025-01-08
 [Software Integration] ends 2025-02-10
+[Software Integration] is colored in Orange/LightGray
 [Develop and Integrate RFID and Fingerprint Reader] starts 2025-01-14
 [Develop and Integrate RFID and Fingerprint Reader] ends 2025-02-03
+[Develop and Integrate RFID and Fingerprint Reader] is colored in Orange/LightGray
 [Hardware Handler Testing] starts 2025-01-27
 [Hardware Handler Testing] ends 2025-02-10
 [Enrolment Program Development] starts 2025-01-27
