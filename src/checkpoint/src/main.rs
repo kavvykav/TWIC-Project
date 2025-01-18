@@ -21,6 +21,20 @@ const BAUD_RATE: u32 = 9600;
 /****************
     STRUCTURES
 ****************/
+#[derive(Deserialize, Serialize, Clone)]
+enum CheckpointState {
+    WaitForRfid,
+    WaitForFingerprint,
+    AuthSuccessful,
+    AuthFailed,
+}
+
+#[derive(Deserialize, Serialize, Clone)]
+enum EnrollUpdateDeleteStatus {
+    Success,
+    Failed,
+}
+
 #[derive(Deserialize, Clone)]
 struct CheckpointReply {
     status: String,
@@ -28,7 +42,10 @@ struct CheckpointReply {
     worker_id: Option<u32>,
     fingerprint: Option<String>,
     data: Option<String>,
+    auth_response: Option<CheckpointState>,
+    update_delete_enroll_result: Option<EnrollUpdateDeleteStatus>,
 }
+
 #[derive(Serialize, Clone)]
 struct CheckpointRequest {
     command: String,
@@ -37,41 +54,136 @@ struct CheckpointRequest {
     worker_fingerprint: Option<String>,
     location: Option<String>,
     authorized_roles: Option<String>,
+    role_id: Option<u32>,
+    worker_name: Option<String>,
 }
 
-/*
- * Name: register_in_database
- * Function: sends an init message to have the checkpoint register in the centralized database,
- *           where the checkpoint is assigned an ID.
- */
-fn register_in_database(stream: &mut TcpStream, init_req: &CheckpointRequest) -> CheckpointReply {
+/****************
+    WRAPPERS
+****************/
+impl CheckpointRequest {
+    pub fn init_request(location: String, authorized_roles: String) -> CheckpointRequest {
+        return CheckpointRequest {
+            command: "INIT_REQUEST".to_string(),
+            checkpoint_id: None,
+            worker_id: None,
+            worker_fingerprint: None,
+            location: Some(location),
+            authorized_roles: Some(authorized_roles),
+            role_id: None,
+            worker_name: None,
+        };
+    }
+    pub fn rfid_auth_request(checkpoint_id: u32,
+                      worker_id: u32,) -> CheckpointRequest {
+        return CheckpointRequest {
+            command: "AUTHENTICATE".to_string(),
+            checkpoint_id: Some(checkpoint_id),
+            worker_id: Some(worker_id),
+            worker_fingerprint: None,
+            location: None,
+            authorized_roles: None,
+            role_id: None,
+            worker_name: None,
+        };
+    }
+    pub fn fingerprint_auth_req(checkpoint_id: u32,
+                                worker_id: u32,
+                                worker_fingerprint: String) -> CheckpointRequest {
+        
+        return CheckpointRequest {
+            command: "AUTHENTICATE".to_string(),
+            checkpoint_id: Some(checkpoint_id),
+            worker_id: Some(worker_id),
+            worker_fingerprint: Some(worker_fingerprint),
+            location: None,
+            authorized_roles: None,
+            role_id: None,
+            worker_name: None,
+        };
+    }
+    pub fn enroll_req(checkpoint_id: u32,
+                      worker_name: String,
+                      worker_fingerprint: String,
+                      location: String,
+                      role_id: u32) -> CheckpointRequest {
+        return CheckpointRequest {
+            command: "ENROLL".to_string(),
+            checkpoint_id: Some(checkpoint_id),
+            worker_id: None,
+            worker_fingerprint: Some(worker_fingerprint),
+            location: Some(location),
+            authorized_roles: None,
+            role_id: Some(role_id),
+            worker_name: Some(worker_name),
+        };
+    }
+    pub fn update_req(checkpoint_id: u32,
+                      worker_id: u32,
+                      new_role_id: u32,
+                      new_location: String) -> CheckpointRequest {
+        return CheckpointRequest {
+            command: "UPDATE".to_string(),
+            checkpoint_id: Some(checkpoint_id),
+            worker_id: Some(worker_id),
+            worker_fingerprint: None,
+            location: Some(new_location),
+            authorized_roles: None,
+            role_id: Some(new_role_id),
+            worker_name: None,
+        };
+    }
+    pub fn delete_req(checkpoint_id: u32,
+                      worker_id: u32) -> CheckpointRequest {
+        return CheckpointRequest {
+            command: "DELETE".to_string(),
+            checkpoint_id: Some(checkpoint_id),
+            worker_id: Some(worker_id),
+            worker_fingerprint: None,
+            location: None,
+            authorized_roles: None,
+            role_id: None,
+            worker_name: None,
+        };
+    }
+}
+    
 
-    // Serialize structure into a JSON
-    let mut init_json = match serde_json::to_string(init_req) {
-        Ok(json) => json,
-        Err(e) => {
-            eprintln!("Could not serialize structure: {}", e);
-            return CheckpointReply {
-                status: "error".to_string(),
-                checkpoint_id: None,
-                worker_id: None,
-                fingerprint: None,
-                data: None,
-            }
-        }
-    };
-    init_json.push('\0');
-
-    // Send to Port Server
-    if let Err(e) = stream.write_all(init_json.as_bytes()) {
-        eprintln!("Could not send to port server: {}", e);
+impl CheckpointReply {
+    pub fn error() -> CheckpointReply {
         return CheckpointReply {
             status: "error".to_string(),
             checkpoint_id: None,
             worker_id: None,
             fingerprint: None,
             data: None,
+            auth_response: None,
+            update_delete_enroll_result: None,
+        };
+    }
+}
+
+/*
+ * Name: send_and_receive
+ * Function: sends an init message to have the checkpoint register in the centralized database,
+ *           where the checkpoint is assigned an ID.
+ */
+fn send_and_receive(stream: &mut TcpStream, init_req: &CheckpointRequest) -> CheckpointReply {
+
+    // Serialize structure into a JSON
+    let mut json = match serde_json::to_string(init_req) {
+        Ok(json) => json,
+        Err(e) => {
+            eprintln!("Could not serialize structure: {}", e);
+            return CheckpointReply::error();
         }
+    };
+    json.push('\0');
+
+    // Send to Port Server
+    if let Err(e) = stream.write_all(json.as_bytes()) {
+        eprintln!("Could not send to port server: {}", e);
+        return CheckpointReply::error();
     }
 
     // Flush the stream
@@ -85,7 +197,7 @@ fn register_in_database(stream: &mut TcpStream, init_req: &CheckpointRequest) ->
         Ok(_) => {
             match String::from_utf8(buffer.clone()) {
                 Ok(mut string) => {
-                    string.pop(); // Remove the null terminator if present
+                    string.pop();
                     string
                 }
                 Err(e) => {
@@ -105,13 +217,7 @@ fn register_in_database(stream: &mut TcpStream, init_req: &CheckpointRequest) ->
         Ok(resp) => resp,
         Err(e) => {
             eprintln!("Could not deserialize response: {}", e);
-            return CheckpointReply {
-                status: "error".to_string(),
-                checkpoint_id: None,
-                worker_id: None,
-                fingerprint: None,
-                data: None,
-            }
+            return CheckpointReply::error();
         }
     };
 
@@ -126,16 +232,16 @@ fn main() {
     // Parse command line arguments to get the port location and roles that this
     // checkpoint allows
     let args: Vec<String> = env::args().collect();
-    if args.len() <  3 {
-        eprintln!("Command line arguments need to be as follows: [location] [allowed roles]");
+    if args.len() <  4 {
+        eprintln!("Command line arguments need to be as follows: [function] [location] [allowed roles]");
         return;
     }
 
     // Get location of the checkpoint
-    let location = args.get(1).unwrap().to_string();
+    let location = args.get(2).unwrap().to_string();
 
     // Get authorized roles for this checkpoint
-    let authorized_roles = args[2..].to_vec().join(",");
+    let authorized_roles = args[3..].to_vec().join(",");
 
 
     // Connect to Port Server
@@ -151,16 +257,9 @@ fn main() {
     };
 
     // Send an init request to register in the database
-    let init_req = CheckpointRequest {
-        command: "INIT_REQUEST".to_string(),
-        checkpoint_id: None,
-        worker_id: None,
-        worker_fingerprint: None,
-        location: Some(location),
-        authorized_roles: Some(authorized_roles),
-    };
+    let init_req = CheckpointRequest::init_request(location.clone(), authorized_roles);
 
-    let init_reply: CheckpointReply = register_in_database(&mut stream, &init_req);
+    let init_reply: CheckpointReply = send_and_receive(&mut stream, &init_req);
 
     if init_reply.status == "error" {
         eprintln!("Error with registering the checkpoint");
@@ -169,83 +268,118 @@ fn main() {
 
     println!("Got an ID assigned by the central database: {}", init_reply.checkpoint_id.unwrap_or(0) );
 
-    // Polling loop used to authenticate user
-    loop {
-        // Collect card info (first layer of authentication)
-        //println!("Please tap your card");
-        let tag_id = match rfid::read_rfid(RFID_PORT, BAUD_RATE) {
-            Ok(tag_id) => {
-                println!("RFID Tag ID: {}", tag_id);
-                tag_id
-            }
-            Err(e) => {
-                eprintln!("Error: {}", e);
-                break;
-            }
-        };
+    // Store ID
+    if let Some(checkpoint_id) = init_reply.checkpoint_id {
+        // Functionalities at the checkpoint side
+        if let Some(function) = args.get(1) {
+            match function.as_str() {
+                "enroll" => {
+                    println!("Please give your name");
+                    let worker_name = "Jim Bob".to_string();
+                    println!("Please enter your role");
+                    let role_id = 2;
+                    println!("Please scan your fingerprint");
+                    let worker_fingerprint = "dummy fingerprint".to_string();
+                    
+                    // Construct enroll request
+                    let enroll_req = CheckpointRequest::enroll_req(checkpoint_id, worker_name, worker_fingerprint, location, role_id);
+        
+                    // Send and receive the response
+                    let enroll_reply = send_and_receive(&mut stream, &enroll_req);
+        
+                    // Error check
+                    if enroll_reply.status == "success".to_string() {
+                        println!("User enrolled successfully!");
+                        return;
+                    } else {
+                        println!("Error with enrolling the user");
+                        return;
+                    }
+        
+        
+                }
+                "update" => {
+                    println!("Please give your ID");
+                    let worker_id = 1;
+                    let new_role_id = 3;
+                    let new_location = "Halifax".to_string();
+        
+                    // Construct request structure
+                    let update_req = CheckpointRequest::update_req(checkpoint_id, worker_id, new_role_id, new_location);
+        
+                    // Send request and receive response
+                    let update_reply = send_and_receive(&mut stream, &update_req);
+        
+                    // Error check
+                    if update_reply.status == "success".to_string() {
+                        println!("User updated successfully!");
+                        return;
+                    } else {
+                        println!("Error with updating the user");
+                        return;
+                    }
+                }
+        
+                "delete" => {
+                    println!("Please give your ID");
+                    let worker_id = 1;
+        
+                    // Construct request structure
+                    let delete_req = CheckpointRequest::delete_req(checkpoint_id, worker_id);
+        
+                    // Send request and receive response
+                    let delete_reply = send_and_receive(&mut stream, &delete_req);
+        
+                    // Error check
+                    if delete_reply.status == "success".to_string() {
+                        println!("User deleted successfully!");
+                        return;
+                    } else {
+                        println!("Error with deleting the user");
+                        return;
+                    }
+                }
+                "authenticate" => {
+                    // Polling loop used to authenticate user
+                    loop {
+                        // Collect card info (first layer of authentication)
+                        println!("Please tap your card");
+                        let worker_id = 0xDEADBEEF;
 
-        // Send information to port server
-        println!("Validating card...");
-        if let Err(e) = stream.write_all(tag_id.as_bytes()) {
-            eprintln!("Failed to send RFID data: {}", e);
-            break;
+                        // Send information to port server
+                        println!("Validating card...");
+                        let rfid_auth_req = CheckpointRequest::rfid_auth_request(checkpoint_id, worker_id);
+                        let auth_reply: CheckpointReply = send_and_receive(&mut stream, &rfid_auth_req);
+                        if let Some(CheckpointState::AuthFailed) = auth_reply.auth_response {
+                            println!("Authentication failed.");
+                            continue;
+                        } else {
+                            println!("Please scan your fingerprint");
+                        }
+                        
+        
+                        // Collect fingerprint data
+                        let worker_fingerprint = "Dummy fingerprint".to_string();
+                        let fingerprint_auth_request= CheckpointRequest::fingerprint_auth_req(checkpoint_id, worker_id, worker_fingerprint);
+                        let fingerprint_auth_reply: CheckpointReply = send_and_receive(&mut stream, &rfid_auth_req);
+                        if let Some(CheckpointState::AuthFailed) = fingerprint_auth_reply.auth_response {
+                            println!("Authentication failed.");
+                            continue;
+                        } else {
+                            println!("Authentication successful");
+                        }                
+        
+                        // 5 second timeout between loop iterations
+                        thread::sleep(Duration::new(5, 0));
+                    }
+                }
+                _ => {
+                    println!("Unknown function!");
+                    return;
+                }
+            }
         }
-
-        // Wait for a response from the server
-        let mut buffer = [0; 128];
-        let rfid_bytes_read = match stream.read(&mut buffer) {
-            Ok(bytes_read) => bytes_read,
-            Err(e) => {
-                eprintln!("Failed to read from server: {}", e);
-                break;
-            }
-        };
-
-        // Process server result
-        if rfid_bytes_read > 0 {
-            if buffer[0] == 0 {
-                println!("Card not recognized, access denied");
-                thread::sleep(Duration::new(1, 0));
-                break;
-            }
-        } else {
-            eprintln!("No response from server");
-            break;
-        }
-
-        // Collect fingerprint data
-        println!("Please scan your fingerprint");
-        match fingerprint::capture_fingerprint(FINGERPRINT_PORT, BAUD_RATE) {
-            Ok(_fingerprint) => {
-                println!("Fingerprint retrieved successfully");
-            }
-            Err(e) => {
-                eprintln!("Error: {}", e);
-                break;
-            }
-        }
-
-        // Wait for server to respond
-        let fingerprint_bytes_read = match stream.read(&mut buffer) {
-            Ok(bytes_read) => bytes_read,
-            Err(e) => {
-                eprintln!("Failed to read from server: {}", e);
-                break;
-            }
-        };
-
-        // Process server result
-        if fingerprint_bytes_read > 0 {
-            if buffer[0] == 1 {
-                println!("Access granted!");
-            } else {
-                println!("Fingerprint not recognized, access denied");
-            }
-        } else {
-            eprintln!("No response from server");
-        }
-
-        // 5 second timeout between loop iterations
-        thread::sleep(Duration::new(5, 0));
     }
+
+    
 }

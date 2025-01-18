@@ -1,7 +1,6 @@
 /****************
     IMPORTS
 ****************/
-
 mod roles;
 
 use roles::Role;
@@ -15,7 +14,6 @@ use tokio::sync::Mutex;
 /****************
     CONSTANTS
 ****************/
-
 const IP_ADDRESS: &str = "127.0.0.1:3036";
 
 /****************
@@ -42,6 +40,76 @@ struct Response {
     location: Option<String>,
     authorized_roles: Option<String>,
     role_id: Option<u32>,
+}
+
+/****************
+    WRAPPERS
+****************/
+impl Response {
+    pub fn error() -> Response{
+        return Response {
+            status: "error".to_string(),
+            checkpoint_id: None,
+            worker_id: None,
+            worker_fingerprint: None,
+            location: None,
+            authorized_roles: None,
+            role_id: None,
+        };
+    }
+
+    pub fn auth_info(checkpoint_id: u32, 
+                     worker_id: u32,
+                     worker_fingerprint: String,
+                     location: String,
+                     authorized_roles: String,
+                     role_id: u32) -> Response {
+        return Response {
+            status: "success".to_string(),
+            checkpoint_id: Some(checkpoint_id),
+            worker_id: Some(worker_id),
+            worker_fingerprint: Some(worker_fingerprint),
+            location: Some(location),
+            authorized_roles: Some(authorized_roles),
+            role_id: Some(role_id),
+        };
+    }
+
+    pub fn init_success(conn: &Connection) -> Response{
+        return Response {
+            status: "success".to_string(),
+            checkpoint_id: Some(conn.last_insert_rowid() as u32),
+            worker_id: None,
+            worker_fingerprint: None,
+            location: None,
+            authorized_roles: None,
+            role_id: None,
+        };
+    }
+
+    pub fn enroll_success(conn: &Connection) -> Response {
+        return Response {
+            status: "success".to_string(),
+            checkpoint_id: None,
+            worker_id: Some(conn.last_insert_rowid() as u32),
+            worker_fingerprint: None,
+            location: None,
+            authorized_roles: None,
+            role_id: None,
+        };
+    }
+
+    pub fn update_delete_success() -> Response {
+        return Response {
+            status: "success".to_string(),
+            checkpoint_id: None,
+            worker_id: None,
+            worker_fingerprint: None,
+            location: None,
+            authorized_roles: None,
+            role_id: None,
+        };
+    }
 }
 
 /*
@@ -122,27 +190,11 @@ async fn handle_port_server_request(conn: Arc<Mutex<Connection>>, req: Request) 
                         "Added checkpoint to the database! ID is {}",
                         conn.last_insert_rowid()
                     );
-                    return Response {
-                        status: "success".to_string(),
-                        checkpoint_id: Some(conn.last_insert_rowid() as u32),
-                        worker_id: None,
-                        worker_fingerprint: None,
-                        location: None,
-                        authorized_roles: None,
-                        role_id: None,
-                    };
+                    return Response::init_success(&conn);
                 }
                 Err(e) => {
                     eprintln!("Issue with adding checkpoint to the database: {}", e);
-                    return Response {
-                        status: "error".to_string(),
-                        checkpoint_id: None,
-                        worker_id: None,
-                        worker_fingerprint: None,
-                        location: None,
-                        authorized_roles: None,
-                        role_id: None,
-                    };
+                    return Response::error();
                 }
             }
         }
@@ -165,27 +217,31 @@ async fn handle_port_server_request(conn: Arc<Mutex<Connection>>, req: Request) 
                 );
             match _result {
                 Ok((name, fingerprint_hash, role_name, role_id)) => {
-                    return Response {
-                        status: "success".to_string(),
-                        checkpoint_id: req.checkpoint_id,
-                        worker_id: req.worker_id,
-                        worker_fingerprint: fingerprint_hash,
-                        location: req.location,
-                        authorized_roles: req.authorized_roles,
-                        role_id: role_id,
+                    if let (Some(checkpoint_id), Some(worker_id), Some(location), Some(authorized_roles)) = (
+                        req.checkpoint_id,
+                        req.worker_id,
+                        req.location.clone(),
+                        req.authorized_roles.clone(),
+                    ) {
+                        if let (Some(fingerprint), Some(role)) = (fingerprint_hash, role_id) {
+                            return Response::auth_info(
+                                checkpoint_id,
+                                worker_id,
+                                fingerprint,
+                                location,
+                                authorized_roles,
+                                role,
+                            );
+                        } else {
+                            return Response::error();
+                        }
+                    } else {
+                        return Response::error();
                     }
-                }
+                },
                 Err(e) => {
-                    eprintln!("Could not perform authentication: {}", e);
-                    return Response {
-                        status: "error".to_string(),
-                        checkpoint_id: None,
-                        worker_id: None,
-                        worker_fingerprint: None,
-                        location: None,
-                        authorized_roles: None,
-                        role_id: None,
-                    }
+                    eprintln!("Could not extract neccesary values from the database: {}", e);
+                    return Response::error();
                 }
             }
         }
@@ -193,53 +249,29 @@ async fn handle_port_server_request(conn: Arc<Mutex<Connection>>, req: Request) 
             let exists: bool = conn
                 .query_row(
                     "SELECT EXISTS(SELECT 1 FROM employees WHERE name = ?1 AND role_id = ?2)",
-                    params![req.worker_name, req.worker_id],
+                    params![req.worker_name, req.role_id],
                     |row| row.get(0),
                 )
                 .unwrap_or(false);
 
             if exists {
                 println!("User already exists!");
-                return Response {
-                    status: "error".to_string(),
-                    checkpoint_id: None,
-                    worker_id: None,
-                    worker_fingerprint: None,
-                    location: None,
-                    authorized_roles: None,
-                    role_id: None,
-                };
+                return Response::error();
             }
 
             let result = conn.execute(
                 "INSERT INTO employees (name, fingerprint_hash, role_id) VALUES (?1, ?2, ?3)",
-                params![req.worker_name, req.worker_fingerprint, req.worker_id],
+                params![req.worker_name, req.worker_fingerprint, req.role_id],
             );
 
             match result {
                 Ok(result) => {
-                    return Response {
-                        status: "success".to_string(),
-                        checkpoint_id: None,
-                        worker_id: None,
-                        worker_fingerprint: None,
-                        location: None,
-                        authorized_roles: None,
-                        role_id: None,
-                    };
+                    return Response::enroll_success(&conn);
                 }
 
                 Err(e) => {
                     eprintln!("Could not enroll user {}", e);
-                    return Response {
-                        status: "error".to_string(),
-                        checkpoint_id: None,
-                        worker_id: None,
-                        worker_fingerprint: None,
-                        location: None,
-                        authorized_roles: None,
-                        role_id: None,
-                    };
+                    return Response::error();
                 }
             }
         }
@@ -251,39 +283,15 @@ async fn handle_port_server_request(conn: Arc<Mutex<Connection>>, req: Request) 
             match result {
                 Ok(affected) => {
                     if affected > 0 {
-                        return Response {
-                            status: "success".to_string(),
-                            checkpoint_id: None,
-                            worker_id: None,
-                            worker_fingerprint: None,
-                            location: None,
-                            authorized_roles: None,
-                            role_id: None,
-                        };
+                        return Response::update_delete_success();
                     } else {
                         println!("Zero affected users");
-                        return Response {
-                            status: "error".to_string(),
-                            checkpoint_id: None,
-                            worker_id: None,
-                            worker_fingerprint: None,
-                            location: None,
-                            authorized_roles: None,
-                            role_id: None,
-                        };
+                        return Response::error();
                     }
                 }
                 Err(e) => {
                     eprintln!("An error occured with adding a user: {}", e);
-                    return Response {
-                        status: "error".to_string(),
-                        checkpoint_id: None,
-                        worker_id: None,
-                        worker_fingerprint: None,
-                        location: None,
-                        authorized_roles: None,
-                        role_id: None,
-                    };
+                    return Response::error();
                 }
             }
         }
@@ -295,53 +303,21 @@ async fn handle_port_server_request(conn: Arc<Mutex<Connection>>, req: Request) 
             match result {
                 Ok(affected) => {
                     if affected > 0 {
-                        return Response {
-                            status: "success".to_string(),
-                            checkpoint_id: None,
-                            worker_id: None,
-                            worker_fingerprint: None,
-                            location: None,
-                            authorized_roles: None,
-                            role_id: None,
-                        };
+                        return Response::update_delete_success();
                     } else {
                         println!("Affected users is zero");
-                        return Response {
-                            status: "error".to_string(),
-                            checkpoint_id: None,
-                            worker_id: None,
-                            worker_fingerprint: None,
-                            location: None,
-                            authorized_roles: None,
-                            role_id: None,
-                        };
+                        return Response::error();
                     }
                 }
                 Err(e) => {
                     eprintln!("Error with deleting a worker: {}", e);
-                    return Response {
-                        status: "error".to_string(),
-                        checkpoint_id: None,
-                        worker_id: None,
-                        worker_fingerprint: None,
-                        location: None,
-                        authorized_roles: None,
-                        role_id: None,
-                    };
+                    return Response::error();
                 }
             }
         }
         _ => {
             println!("Unknown command");
-            return Response {
-                status: "error".to_string(),
-                checkpoint_id: None,
-                worker_id: None,
-                worker_fingerprint: None,
-                location: None,
-                authorized_roles: None,
-                role_id: None,
-            };
+            return Response::error();
         }
     }
 }
@@ -376,15 +352,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                     let response = match request {
                         Ok(req) => handle_port_server_request(database, req).await,
-                        Err(_) => Response {
-                            status: "error".to_string(),
-                            checkpoint_id: None,
-                            worker_id: None,
-                            worker_fingerprint: None,
-                            location: None,
-                            authorized_roles: None,
-                            role_id: None,
-                        },
+                        Err(_) => Response::error(),
                     };
 
                     let mut response_json = match serde_json::to_string(&response) {
@@ -395,6 +363,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                     };
 
+                    // Append null terminator to tell the server when to stop reading
                     response_json.push('\0');
 
                     if let Err(e) = socket.write_all(response_json.as_bytes()).await {
