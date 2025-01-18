@@ -149,10 +149,17 @@ fn authenticate_rfid(rfid_tag: &Option<u32>) -> bool {
 
         match query_database(DATABASE_ADDR, &request) {
             Ok(response) => {
+                println!("RFID comparison: sent: {}, received: {:?}", rfid, response.worker_id);
+                println!("Response status: {}", response.status);
+
+                // Error check
+                if response.status != "success".to_string() {
+                    return false;
+                }
                 return Some(rfid) == response.worker_id.as_ref();
             }
             Err(e) => {
-                eprintln!("Error querying database for RFID: {}", e);
+                eprintln!("Error querying database for RFID: {:?}", e);
                 return false;
             }
         }
@@ -180,6 +187,15 @@ fn authenticate_fingerprint(rfid_tag: &Option<u32>, fingerprint_hash: &Option<St
 
         match query_database(DATABASE_ADDR, &request) {
             Ok(response) => {
+                println!("RFID comparison: sent: {}, received: {:?}", rfid, response.worker_id);
+                println!("Fingerprint comparison: sent: {}, received: {:?}", fingerprint, response.fingerprint);
+                println!("Response status: {}", response.status);
+
+                // Error check
+                if response.status != "success".to_string() {
+                    return false;
+                }
+
                 return Some(rfid) == response.worker_id.as_ref()
                     && Some(fingerprint) == response.fingerprint.as_ref();
             }

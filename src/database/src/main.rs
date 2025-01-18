@@ -199,6 +199,7 @@ async fn handle_port_server_request(conn: Arc<Mutex<Connection>>, req: Request) 
             }
         }
         "AUTHENTICATE" => {
+            //TODO: query checkpoints table to get location and authorized roles, as it's not being sent through the request
             println!("Worker ID: {}", req.worker_id.unwrap());
             let _result: Result<(Option<String>, Option<String>, Option<u32>), _> =
                 conn.query_row(
@@ -216,14 +217,18 @@ async fn handle_port_server_request(conn: Arc<Mutex<Connection>>, req: Request) 
                     },
                 );
             match _result {
-                Ok((name, fingerprint_hash, role_id)) => {
+                Ok((name, fingerprint_hash, role_id)) => { //This line is fine
+                    // Port location and authorized roles should be obtained by querying the database, checkpoint and worker id\
+                    // can be obtained through the request itself.
                     if let (Some(checkpoint_id), Some(worker_id), Some(location), Some(authorized_roles)) = (
                         req.checkpoint_id,
                         req.worker_id,
-                        req.location.clone(),
-                        req.authorized_roles.clone(),
+                        req.location.clone(), //this doesn't come through with the request
+                        req.authorized_roles.clone(), //neither does this
                     ) {
+                        // Fingerprint and role should be obtained through the above query (I think it works)
                         if let (Some(fingerprint), Some(role)) = (fingerprint_hash, role_id) {
+                            println!("Fingerprint: {}", fingerprint);
                             return Response::auth_info(
                                 checkpoint_id,
                                 worker_id,
@@ -233,9 +238,12 @@ async fn handle_port_server_request(conn: Arc<Mutex<Connection>>, req: Request) 
                                 role,
                             );
                         } else {
+                            println!("Fingerprint or Role ID is of None type");
                             return Response::error();
                         }
                     } else {
+                        // This is currently the error being thrown due to the above reason
+                        println!("Checkpoint ID, Worker ID, Location or Authorized Roles is of None Type");
                         return Response::error();
                     }
                 },

@@ -76,7 +76,7 @@ impl CheckpointRequest {
     }
 
     pub fn rfid_auth_request(checkpoint_id: u32,
-                      worker_id: u32,) -> CheckpointRequest {
+                      worker_id: u32) -> CheckpointRequest {
         return CheckpointRequest {
             command: "AUTHENTICATE".to_string(),
             checkpoint_id: Some(checkpoint_id),
@@ -355,7 +355,7 @@ fn main() {
                     loop {
                         // Collect card info (first layer of authentication)
                         println!("Please tap your card");
-                        let worker_id = 1;
+                        let worker_id = 2;
 
                         // Send information to port server
                         println!("Validating card...");
@@ -372,7 +372,7 @@ fn main() {
                         
         
                         // Collect fingerprint data
-                        let worker_fingerprint = "Dummy fingerprint".to_string();
+                        let worker_fingerprint = "dummy fingerprint".to_string();
                         let fingerprint_auth_request= CheckpointRequest::fingerprint_auth_req(checkpoint_id, worker_id, worker_fingerprint);
                         let fingerprint_auth_reply: CheckpointReply = send_and_receive(&mut stream, &rfid_auth_req);
                         if let Some(CheckpointState::AuthFailed) = fingerprint_auth_reply.auth_response {
