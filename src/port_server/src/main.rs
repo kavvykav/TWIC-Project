@@ -66,9 +66,9 @@ struct DatabaseReply {
     status: String,
     checkpoint_id: Option<u32>,
     worker_id: Option<u32>,
-    fingerprint: Option<String>,
+    worker_fingerprint: Option<String>,
     data: Option<String>,
-    role_id: Option<String>,
+    role_id: Option<u32>,
     auth_response: Option<CheckpointState>,
     update_delete_enroll_result: Option<EnrollUpdateDeleteStatus>,
 }
@@ -77,9 +77,9 @@ impl DatabaseReply {
     pub fn success(checkpoint_id: Option<u32>) -> Self {
         DatabaseReply {
             status: "success".to_string(),
-            checkpoint_id,
+            checkpoint_id: checkpoint_id,
             worker_id: None,
-            fingerprint: None,
+            worker_fingerprint: None,
             data: None,
             role_id: None,
             auth_response: None,
@@ -92,7 +92,7 @@ impl DatabaseReply {
             status: "error".to_string(),
             checkpoint_id: None,
             worker_id: None,
-            fingerprint: None,
+            worker_fingerprint: None,
             data: None,
             role_id: None,
             auth_response: None,
@@ -104,7 +104,7 @@ impl DatabaseReply {
             status: "success".to_string(),
             checkpoint_id: None,
             worker_id: None,
-            fingerprint: None,
+            worker_fingerprint: None,
             data: None,
             role_id: None,
             auth_response: Some(state),
@@ -134,12 +134,12 @@ fn set_stream_timeout(stream: &std::net::TcpStream, duration: Duration) {
  * 3. Return True or False
 */
 
-fn authenticate_rfid(rfid_tag: &Option<u32>) -> bool {
-    if let Some(rfid) = rfid_tag {
+fn authenticate_rfid(rfid_tag: &Option<u32>, checkpoint_id: &Option<u32>) -> bool {
+    if let (Some(rfid), Some(checkpoint)) = (rfid_tag, checkpoint_id) {
         let request = DatabaseRequest {
             command: "AUTHENTICATE".to_string(),
-            checkpoint_id: None,
-            worker_id: None,
+            checkpoint_id: Some(checkpoint.clone()),
+            worker_id: Some(rfid.clone()),
             worker_fingerprint: None,
             location: None,
             authorized_roles: None,
@@ -149,10 +149,17 @@ fn authenticate_rfid(rfid_tag: &Option<u32>) -> bool {
 
         match query_database(DATABASE_ADDR, &request) {
             Ok(response) => {
+                println!("RFID comparison: from checkpoint: {}, from database: {:?}", rfid, response.worker_id);
+                println!("Response status: {}", response.status);
+
+                // Error check
+                if response.status != "success".to_string() {
+                    return false;
+                }
                 return Some(rfid) == response.worker_id.as_ref();
             }
             Err(e) => {
-                eprintln!("Error querying database for RFID: {}", e);
+                eprintln!("Error querying database for RFID: {:?}", e);
                 return false;
             }
         }
@@ -165,11 +172,11 @@ fn authenticate_rfid(rfid_tag: &Option<u32>) -> bool {
  * Name: authenticate_fingerprint
  * Function: Similar to rfid with logic
 */
-fn authenticate_fingerprint(rfid_tag: &Option<u32>, fingerprint_hash: &Option<String>) -> bool {
-    if let (Some(rfid), Some(fingerprint)) = (rfid_tag, fingerprint_hash) {
+fn authenticate_fingerprint(rfid_tag: &Option<u32>, fingerprint_hash: &Option<String>, checkpoint_id: &Option<u32>) -> bool {
+    if let (Some(rfid), Some(fingerprint), Some(checkpoint)) = (rfid_tag, fingerprint_hash, checkpoint_id) {
         let request = DatabaseRequest {
             command: "AUTHENTICATE".to_string(),
-            checkpoint_id: None,
+            checkpoint_id: Some(checkpoint.clone()),
             worker_id: Some(rfid.clone()),
             worker_fingerprint: Some(fingerprint.clone()),
             location: None,
@@ -180,8 +187,16 @@ fn authenticate_fingerprint(rfid_tag: &Option<u32>, fingerprint_hash: &Option<St
 
         match query_database(DATABASE_ADDR, &request) {
             Ok(response) => {
+                println!("RFID comparison: from checkpoint: {}, from database: {:?}", rfid, response.worker_id);
+                println!("Fingerprint comparison: from checkpoint: {}, from database: {:?}", fingerprint, response.worker_fingerprint);
+
+                // Error check
+                if response.status != "success".to_string() {
+                    return false;
+                }
+
                 return Some(rfid) == response.worker_id.as_ref()
-                    && Some(fingerprint) == response.fingerprint.as_ref();
+                    && Some(fingerprint) == response.worker_fingerprint.as_ref();
             }
             Err(e) => {
                 eprintln!("Error querying database for fingerprint hash: {}", e);
@@ -347,9 +362,11 @@ fn handle_authenticate(
     let mut clients = clients.lock().unwrap();
     let client = clients.get_mut(&client_id).ok_or("Client not found")?;
 
+    println!("Worker ID is {}", request.worker_id.unwrap());
+
     let response = match client.state {
         CheckpointState::WaitForRfid => {
-            if authenticate_rfid(&request.worker_id) {
+            if authenticate_rfid(&request.worker_id, &request.checkpoint_id) {
                 client.state = CheckpointState::WaitForFingerprint;
                 DatabaseReply::auth_reply(CheckpointState::WaitForFingerprint)
             } else {
@@ -358,7 +375,7 @@ fn handle_authenticate(
             }
         }
         CheckpointState::WaitForFingerprint => {
-            if authenticate_fingerprint(&request.worker_id, &request.worker_fingerprint) {
+            if authenticate_fingerprint(&request.worker_id, &request.worker_fingerprint, &request.checkpoint_id) {
                 client.state = CheckpointState::AuthSuccessful;
                 DatabaseReply::auth_reply(CheckpointState::AuthSuccessful)
             } else {
