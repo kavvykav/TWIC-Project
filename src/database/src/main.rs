@@ -218,9 +218,10 @@ impl Response {
                             params![req.worker_id],
                             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
                         );
-                        
+
                         match worker_data {
                             Ok((worker_name, worker_fingerprint, role_id)) => {
+                                println!("Worker fingerprint is: {}", worker_fingerprint);
                                 // Check if role_id is in authorized_roles
                                 let authorized_roles: Vec<String> = allowed_roles
                                 .split(',')
