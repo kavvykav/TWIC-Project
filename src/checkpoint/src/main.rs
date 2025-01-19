@@ -374,7 +374,7 @@ fn main() {
                         // Collect fingerprint data
                         let worker_fingerprint = "dummy fingerprint".to_string();
                         let fingerprint_auth_request= CheckpointRequest::fingerprint_auth_req(checkpoint_id, worker_id, worker_fingerprint);
-                        let fingerprint_auth_reply: CheckpointReply = send_and_receive(&mut stream, &rfid_auth_req);
+                        let fingerprint_auth_reply: CheckpointReply = send_and_receive(&mut stream, &fingerprint_auth_request);
                         if let Some(CheckpointState::AuthFailed) = fingerprint_auth_reply.auth_response {
                             println!("Authentication failed.");
                             thread::sleep(Duration::new(5, 0));

@@ -200,6 +200,7 @@ impl Response {
             }
             "AUTHENTICATE" => {
                 // Fetch location and authorized_roles from checkpoints
+                println!("Checkpoint id is: {}", req.checkpoint_id.unwrap());
                 let checkpoint_data: Result<(String, String), _> = conn.query_row(
                     "SELECT location, allowed_roles FROM checkpoints WHERE id = ?1",
                     params![req.checkpoint_id],
@@ -211,9 +212,9 @@ impl Response {
                         //Fetch worker details (name, fingerprint, role_id) from employees
                         let worker_data: Result<(String, String, u32), _> = conn.query_row(
                             "SELECT employees.name, employees.fingerprint_hash, roles.id \
-                 FROM employees \
-                 JOIN roles ON employees.role_id = roles.id \
-                 WHERE employees.id = ?1",
+                            FROM employees \
+                            JOIN roles ON employees.role_id = roles.id \
+                            WHERE employees.id = ?1",
                             params![req.worker_id],
                             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
                         );
@@ -221,12 +222,15 @@ impl Response {
                         match worker_data {
                             Ok((worker_name, worker_fingerprint, role_id)) => {
                                 // Check if role_id is in authorized_roles
-                                let authorized_roles: Vec<u32> = allowed_roles
+                                let authorized_roles: Vec<String> = allowed_roles
                                 .split(',')
-                                .filter_map(|role| role.trim().parse::<u32>().ok())
+                                .filter_map(|role| Some(role.trim().to_string()))
                                 .collect();
+
+                                let role_str = Role::as_str(role_id as usize).unwrap().to_string();
                                 
-                                if authorized_roles.contains(&role_id) {
+                                if authorized_roles.contains(&role_str) {
+                                    println!("Role authorized!");
                                     return Response::auth_info(
                                         req.checkpoint_id.unwrap(),
                                         req.worker_id.unwrap(),

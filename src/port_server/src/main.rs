@@ -68,7 +68,7 @@ struct DatabaseReply {
     worker_id: Option<u32>,
     fingerprint: Option<String>,
     data: Option<String>,
-    role_id: Option<String>,
+    role_id: Option<u32>,
     auth_response: Option<CheckpointState>,
     update_delete_enroll_result: Option<EnrollUpdateDeleteStatus>,
 }
@@ -134,11 +134,11 @@ fn set_stream_timeout(stream: &std::net::TcpStream, duration: Duration) {
  * 3. Return True or False
 */
 
-fn authenticate_rfid(rfid_tag: &Option<u32>) -> bool {
-    if let Some(rfid) = rfid_tag {
+fn authenticate_rfid(rfid_tag: &Option<u32>, checkpoint_id: &Option<u32>) -> bool {
+    if let (Some(rfid), Some(checkpoint)) = (rfid_tag, checkpoint_id) {
         let request = DatabaseRequest {
             command: "AUTHENTICATE".to_string(),
-            checkpoint_id: None,
+            checkpoint_id: Some(checkpoint.clone()),
             worker_id: Some(rfid.clone()),
             worker_fingerprint: None,
             location: None,
@@ -149,7 +149,7 @@ fn authenticate_rfid(rfid_tag: &Option<u32>) -> bool {
 
         match query_database(DATABASE_ADDR, &request) {
             Ok(response) => {
-                println!("RFID comparison: sent: {}, received: {:?}", rfid, response.worker_id);
+                println!("RFID comparison: from checkpoint: {}, from database: {:?}", rfid, response.worker_id);
                 println!("Response status: {}", response.status);
 
                 // Error check
@@ -172,11 +172,11 @@ fn authenticate_rfid(rfid_tag: &Option<u32>) -> bool {
  * Name: authenticate_fingerprint
  * Function: Similar to rfid with logic
 */
-fn authenticate_fingerprint(rfid_tag: &Option<u32>, fingerprint_hash: &Option<String>) -> bool {
-    if let (Some(rfid), Some(fingerprint)) = (rfid_tag, fingerprint_hash) {
+fn authenticate_fingerprint(rfid_tag: &Option<u32>, fingerprint_hash: &Option<String>, checkpoint_id: &Option<u32>) -> bool {
+    if let (Some(rfid), Some(fingerprint), Some(checkpoint)) = (rfid_tag, fingerprint_hash, checkpoint_id) {
         let request = DatabaseRequest {
             command: "AUTHENTICATE".to_string(),
-            checkpoint_id: None,
+            checkpoint_id: Some(checkpoint.clone()),
             worker_id: Some(rfid.clone()),
             worker_fingerprint: Some(fingerprint.clone()),
             location: None,
@@ -187,8 +187,8 @@ fn authenticate_fingerprint(rfid_tag: &Option<u32>, fingerprint_hash: &Option<St
 
         match query_database(DATABASE_ADDR, &request) {
             Ok(response) => {
-                println!("RFID comparison: sent: {}, received: {:?}", rfid, response.worker_id);
-                println!("Fingerprint comparison: sent: {}, received: {:?}", fingerprint, response.fingerprint);
+                println!("RFID comparison: from checkpoint: {}, from database: {:?}", rfid, response.worker_id);
+                println!("Fingerprint comparison: from checkpoint: {}, from database: {:?}", fingerprint, response.fingerprint);
                 println!("Response status: {}", response.status);
 
                 // Error check
@@ -367,7 +367,7 @@ fn handle_authenticate(
 
     let response = match client.state {
         CheckpointState::WaitForRfid => {
-            if authenticate_rfid(&request.worker_id) {
+            if authenticate_rfid(&request.worker_id, &request.checkpoint_id) {
                 client.state = CheckpointState::WaitForFingerprint;
                 DatabaseReply::auth_reply(CheckpointState::WaitForFingerprint)
             } else {
@@ -376,7 +376,8 @@ fn handle_authenticate(
             }
         }
         CheckpointState::WaitForFingerprint => {
-            if authenticate_fingerprint(&request.worker_id, &request.worker_fingerprint) {
+            if authenticate_fingerprint(&request.worker_id, &request.worker_fingerprint, &request.checkpoint_id) {
+                println!("Fingerprint authenticated");
                 client.state = CheckpointState::AuthSuccessful;
                 DatabaseReply::auth_reply(CheckpointState::AuthSuccessful)
             } else {
