@@ -56,7 +56,7 @@ impl Response {
             role_id: None,
         };
     }
-
+    
     pub fn auth_info(
         checkpoint_id: u32,
         worker_id: u32,
@@ -75,7 +75,7 @@ impl Response {
             role_id: Some(role_id),
         };
     }
-
+    
     pub fn init_success(conn: &Connection) -> Response {
         return Response {
             status: "success".to_string(),
@@ -87,7 +87,7 @@ impl Response {
             role_id: None,
         };
     }
-
+    
     pub fn enroll_success(conn: &Connection) -> Response {
         return Response {
             status: "success".to_string(),
@@ -99,7 +99,7 @@ impl Response {
             role_id: None,
         };
     }
-
+    
     pub fn update_delete_success() -> Response {
         return Response {
             status: "success".to_string(),
@@ -114,24 +114,24 @@ impl Response {
 }
 
 /*
- * Name: str_to_int
- * Function: converts a number in string representation to a signed 32 bit integer.
- */
+* Name: str_to_int
+* Function: converts a number in string representation to a signed 32 bit integer.
+*/
 fn str_to_int(input: &str) -> Result<i32, String> {
     input
-        .trim()
-        .parse::<i32>()
-        .map_err(|_| format!("Invalid integer: {}", input))
+    .trim()
+    .parse::<i32>()
+    .map_err(|_| format!("Invalid integer: {}", input))
 }
 
 /*
- * Name: initialize_database
- * Function: initializes the centralized database by creating all the tables,
- *           returns a connection to the database.
- */
+* Name: initialize_database
+* Function: initializes the centralized database by creating all the tables,
+*           returns a connection to the database.
+*/
 fn initialize_database() -> Result<Connection> {
     let conn = Connection::open("system.db")?;
-
+    
     conn.execute(
         "CREATE TABLE IF NOT EXISTS roles (
             id INTEGER PRIMARY KEY,
@@ -139,25 +139,26 @@ fn initialize_database() -> Result<Connection> {
         )",
         [],
     )?;
-
+    
     for (id, name) in Role::all_roles().iter().enumerate() {
         conn.execute(
             "INSERT OR IGNORE INTO roles (id, name) VALUES (?1, ?2)",
             params![id as i32, name],
         )?;
     }
-
+    
     conn.execute(
         "CREATE TABLE IF NOT EXISTS employees (
             id INTEGER PRIMARY KEY,
             name TEXT NOT NULL,
             fingerprint_hash TEXT NOT NULL,
             role_id INTEGER NOT NULL,
+            allowed_locations TEXT NOT NULL,
             FOREIGN KEY (role_id) REFERENCES roles (id)
         )",
         [],
     )?;
-
+    
     conn.execute(
         "CREATE TABLE IF NOT EXISTS checkpoints (
             id INTEGER PRIMARY KEY,
@@ -166,19 +167,20 @@ fn initialize_database() -> Result<Connection> {
         )",
         [],
     )?;
-
+    
     Ok(conn)
 }
 
+
 /*
- * Name: handle_port_server_request
- * Function: Searches for the command in the Request structure from the port server,
- *           and services the request accordingly.
- */
+* Name: handle_port_server_request
+* Function: Searches for the command in the Request structure from the port server,
+*           and services the request accordingly.
+*/
 async fn handle_port_server_request(conn: Arc<Mutex<Connection>>, req: Request) -> Response {
     let conn = conn.lock().await;
     println!("Received a command: {}", req.command);
-
+    
     match req.command.as_str() {
         "INIT_REQUEST" => {
             let result = conn.execute(
@@ -200,51 +202,59 @@ async fn handle_port_server_request(conn: Arc<Mutex<Connection>>, req: Request) 
             }
         }
         "AUTHENTICATE" => {
-            // Fetch location and authorized_roles from checkpoints
             println!("Checkpoint id is: {}", req.checkpoint_id.unwrap());
             let checkpoint_data: Result<(String, String), _> = conn.query_row(
                 "SELECT location, allowed_roles FROM checkpoints WHERE id = ?1",
                 params![req.checkpoint_id],
                 |row| Ok((row.get(0)?, row.get(1)?)),
             );
-
+            
             match checkpoint_data {
                 Ok((location, allowed_roles)) => {
-                    //Fetch worker details (name, fingerprint, role_id) from employees
-                    let worker_data: Result<(String, String, u32), _> = conn.query_row(
-                        "SELECT employees.name, employees.fingerprint_hash, roles.id \
-                            FROM employees \
-                            JOIN roles ON employees.role_id = roles.id \
-                            WHERE employees.id = ?1",
+                    let worker_data: Result<(String, String, String, u32), _> = conn.query_row(
+                        "SELECT employees.name, employees.fingerprint_hash, employees.allowed_locations, roles.id \
+                FROM employees \
+                JOIN roles ON employees.role_id = roles.id \
+                WHERE employees.id = ?1",
                         params![req.worker_id],
-                        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
                     );
-
+                    
                     match worker_data {
-                        Ok((worker_name, worker_fingerprint, role_id)) => {
+                        Ok((worker_name, worker_fingerprint, allowed_locations, role_id)) => {
                             println!("Worker fingerprint is: {}", worker_fingerprint);
-                            // Check if role_id is in authorized_roles
+                            
                             let authorized_roles: Vec<String> = allowed_roles
-                                .split(',')
-                                .filter_map(|role| Some(role.trim().to_string()))
-                                .collect();
-
+                            .split(',')
+                            .map(|role| role.trim().to_string())
+                            .collect();
+                            
                             let role_str = Role::as_str(role_id as usize).unwrap().to_string();
-
-                            if authorized_roles.contains(&role_str) {
-                                println!("Role authorized!");
-                                return Response::auth_info(
-                                    req.checkpoint_id.unwrap(),
-                                    req.worker_id.unwrap(),
-                                    worker_fingerprint,
-                                    location,
-                                    allowed_roles,
-                                    role_id,
-                                );
-                            } else {
+                            
+                            if !authorized_roles.contains(&role_str) {
                                 println!("Role not authorized for this checkpoint.");
                                 return Response::error();
                             }
+                            
+                            let allowed_locations_vec: Vec<String> = allowed_locations
+                            .split(',')
+                            .map(|loc| loc.trim().to_string())
+                            .collect();
+                            
+                            if !allowed_locations_vec.contains(&location) {
+                                println!("Location not authorized for this worker.");
+                                return Response::error();
+                            }
+                            
+                            println!("Worker authorized!");
+                            return Response::auth_info(
+                                req.checkpoint_id.unwrap(),
+                                req.worker_id.unwrap(),
+                                worker_fingerprint,
+                                location,
+                                allowed_roles,
+                                role_id,
+                            );
                         }
                         Err(e) => {
                             eprintln!("Error fetching worker details: {}", e);
@@ -258,37 +268,41 @@ async fn handle_port_server_request(conn: Arc<Mutex<Connection>>, req: Request) 
                 }
             }
         }
-
+        
+        
+        
         "ENROLL" => {
             let exists: bool = conn
-                .query_row(
-                    "SELECT EXISTS(SELECT 1 FROM employees WHERE name = ?1 AND role_id = ?2)",
-                    params![req.worker_name, req.role_id],
-                    |row| row.get(0),
-                )
-                .unwrap_or(false);
-
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM employees WHERE name = ?1 AND role_id = ?2)",
+                params![req.worker_name, req.role_id],
+                |row| row.get(0),
+            )
+            .unwrap_or(false);
+            
             if exists {
                 println!("User already exists!");
                 return Response::error();
             }
-
+            
             let result = conn.execute(
-                "INSERT INTO employees (name, fingerprint_hash, role_id) VALUES (?1, ?2, ?3)",
-                params![req.worker_name, req.worker_fingerprint, req.role_id],
+                "INSERT INTO employees (name, fingerprint_hash, role_id, allowed_locations) VALUES (?1, ?2, ?3, ?4)",
+                params![req.worker_name, req.worker_fingerprint, req.role_id, req.location],
             );
-
+            
             match result {
-                Ok(result) => {
+                Ok(_) => {
                     return Response::enroll_success(&conn);
                 }
-
+                
                 Err(e) => {
                     eprintln!("Could not enroll user {}", e);
                     return Response::error();
                 }
             }
         }
+        
+        
         "UPDATE" => {
             let result = conn.execute(
                 "UPDATE employees SET role_id = ?1 WHERE id = ?2",
@@ -337,38 +351,38 @@ async fn handle_port_server_request(conn: Arc<Mutex<Connection>>, req: Request) 
 }
 
 /*
- * Name: main
- * Function: Main program for the database node, opens a socket and services oncoming
- *           TCP connections.
- */
+* Name: main
+* Function: Main program for the database node, opens a socket and services oncoming
+*           TCP connections.
+*/
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let database = initialize_database()?;
     let database = Arc::new(Mutex::new(database));
-
+    
     let listener = TcpListener::bind(IP_ADDRESS).await?;
     println!("Database server is listening on {}", IP_ADDRESS);
-
+    
     loop {
         let (mut socket, addr) = listener.accept().await?;
         println!("Accepted connection from {}", addr);
-
+        
         let database = Arc::clone(&database);
-
+        
         tokio::spawn(async move {
             let mut buffer = vec![0; 1024];
-
+            
             match socket.read(&mut buffer).await {
                 Ok(0) => println!("Client at {} has closed the connection", addr),
                 Ok(n) => {
                     let request_json = String::from_utf8_lossy(&buffer[..n]);
                     let request: Result<Request, _> = serde_json::from_str(&request_json);
-
+                    
                     let response = match request {
                         Ok(req) => handle_port_server_request(database, req).await,
                         Err(_) => Response::error(),
                     };
-
+                    
                     let mut response_json = match serde_json::to_string(&response) {
                         Ok(json) => json,
                         Err(e) => {
@@ -376,10 +390,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             "".to_string()
                         }
                     };
-
+                    
                     // Append null terminator to tell the server when to stop reading
                     response_json.push('\0');
-
+                    
                     if let Err(e) = socket.write_all(response_json.as_bytes()).await {
                         eprintln!("Failed to send response: {}", e);
                     }
