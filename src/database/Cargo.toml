@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+common = { path = "../common" }
 tokio = { version = "1.43", features = ["full", "macros"] }
 rusqlite = "0.32.1"
 serde = { version = "*", features = ["derive"] }
