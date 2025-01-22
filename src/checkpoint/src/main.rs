@@ -1,12 +1,12 @@
 /****************
     IMPORTS
 ****************/
+use common::{CheckpointRequest, CheckpointReply, CheckpointState};
 use std::net::TcpStream;
 use std::io::{Write, Read, BufRead, BufReader};
 use std::env;
 use std::thread;
 use std::time::Duration;
-use serde::{Deserialize, Serialize};
 
 mod fingerprint;
 mod rfid;
@@ -18,155 +18,6 @@ const RFID_PORT: &str = "/dev/ttyUSB0";
 const FINGERPRINT_PORT: &str = "/dev/ttyUSB1";
 const BAUD_RATE: u32 = 9600;
 
-/****************
-    STRUCTURES
-****************/
-#[derive(Deserialize, Serialize, Clone)]
-enum CheckpointState {
-    WaitForRfid,
-    WaitForFingerprint,
-    AuthSuccessful,
-    AuthFailed,
-}
-
-#[derive(Deserialize, Serialize, Clone)]
-enum EnrollUpdateDeleteStatus {
-    Success,
-    Failed,
-}
-
-#[derive(Deserialize, Clone)]
-struct CheckpointReply {
-    status: String,
-    checkpoint_id: Option<u32>,
-    worker_id: Option<u32>,
-    fingerprint: Option<String>,
-    data: Option<String>,
-    auth_response: Option<CheckpointState>,
-    update_delete_enroll_result: Option<EnrollUpdateDeleteStatus>,
-}
-
-#[derive(Serialize, Clone)]
-struct CheckpointRequest {
-    command: String,
-    checkpoint_id: Option<u32>,
-    worker_id: Option<u32>,
-    worker_fingerprint: Option<String>,
-    location: Option<String>,
-    authorized_roles: Option<String>,
-    role_id: Option<u32>,
-    worker_name: Option<String>,
-}
-
-/****************
-    WRAPPERS
-****************/
-impl CheckpointRequest {
-    pub fn init_request(location: String, authorized_roles: String) -> CheckpointRequest {
-        return CheckpointRequest {
-            command: "INIT_REQUEST".to_string(),
-            checkpoint_id: None,
-            worker_id: None,
-            worker_fingerprint: None,
-            location: Some(location),
-            authorized_roles: Some(authorized_roles),
-            role_id: None,
-            worker_name: None,
-        };
-    }
-
-    pub fn rfid_auth_request(checkpoint_id: u32,
-                      worker_id: u32) -> CheckpointRequest {
-        return CheckpointRequest {
-            command: "AUTHENTICATE".to_string(),
-            checkpoint_id: Some(checkpoint_id),
-            worker_id: Some(worker_id),
-            worker_fingerprint: Some("dummy hash".to_string()),
-            location: None,
-            authorized_roles: None,
-            role_id: None,
-            worker_name: None,
-        };
-    }
-
-    pub fn fingerprint_auth_req(checkpoint_id: u32,
-                                worker_id: u32,
-                                worker_fingerprint: String) -> CheckpointRequest {
-        
-        return CheckpointRequest {
-            command: "AUTHENTICATE".to_string(),
-            checkpoint_id: Some(checkpoint_id),
-            worker_id: Some(worker_id),
-            worker_fingerprint: Some(worker_fingerprint),
-            location: None,
-            authorized_roles: None,
-            role_id: None,
-            worker_name: None,
-        };
-    }
-
-    pub fn enroll_req(checkpoint_id: u32,
-                      worker_name: String,
-                      worker_fingerprint: String,
-                      location: String,
-                      role_id: u32) -> CheckpointRequest {
-        return CheckpointRequest {
-            command: "ENROLL".to_string(),
-            checkpoint_id: Some(checkpoint_id),
-            worker_id: None,
-            worker_fingerprint: Some(worker_fingerprint),
-            location: Some(location),
-            authorized_roles: None,
-            role_id: Some(role_id),
-            worker_name: Some(worker_name),
-        };
-    }
-
-    pub fn update_req(checkpoint_id: u32,
-                      worker_id: u32,
-                      new_role_id: u32,
-                      new_location: String) -> CheckpointRequest {
-        return CheckpointRequest {
-            command: "UPDATE".to_string(),
-            checkpoint_id: Some(checkpoint_id),
-            worker_id: Some(worker_id),
-            worker_fingerprint: None,
-            location: Some(new_location),
-            authorized_roles: None,
-            role_id: Some(new_role_id),
-            worker_name: None,
-        };
-    }
-    
-    pub fn delete_req(checkpoint_id: u32,
-                      worker_id: u32) -> CheckpointRequest {
-        return CheckpointRequest {
-            command: "DELETE".to_string(),
-            checkpoint_id: Some(checkpoint_id),
-            worker_id: Some(worker_id),
-            worker_fingerprint: None,
-            location: None,
-            authorized_roles: None,
-            role_id: None,
-            worker_name: None,
-        };
-    }
-}
-    
-
-impl CheckpointReply {
-    pub fn error() -> CheckpointReply {
-        return CheckpointReply {
-            status: "error".to_string(),
-            checkpoint_id: None,
-            worker_id: None,
-            fingerprint: None,
-            data: None,
-            auth_response: None,
-            update_delete_enroll_result: None,
-        };
-    }
-}
 
 /*
  * Name: send_and_receive
@@ -355,7 +206,7 @@ fn main() {
                     loop {
                         // Collect card info (first layer of authentication)
                         println!("Please tap your card");
-                        let worker_id = 2;
+                        let worker_id = 1;
 
                         // Send information to port server
                         println!("Validating card...");

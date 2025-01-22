@@ -1,128 +1,18 @@
 /****************
-IMPORTS
+    IMPORTS
 ****************/
-
-use common::Role;
+use common::{
+    DatabaseReply,
+    DatabaseRequest,
+    Role, 
+    DATABASE_ADDR
+};
 use rusqlite::{params, Connection, Result};
-use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncWriteExt, AsyncReadExt};
 use tokio::net::TcpListener;
 use tokio::sync::Mutex;
 
-/****************
-CONSTANTS
-****************/
-const IP_ADDRESS: &str = "127.0.0.1:3036";
-
-/****************
-STRUCTURES
-****************/
-#[derive(Deserialize)]
-struct Request {
-    command: String,
-    checkpoint_id: Option<u32>,
-    worker_id: Option<u32>,
-    worker_name: Option<String>,
-    worker_fingerprint: Option<String>,
-    location: Option<String>,
-    authorized_roles: Option<String>,
-    role_id: Option<u32>,
-}
-
-#[derive(Serialize)]
-struct Response {
-    status: String,
-    checkpoint_id: Option<u32>,
-    worker_id: Option<u32>,
-    worker_fingerprint: Option<String>,
-    location: Option<String>,
-    authorized_roles: Option<String>,
-    role_id: Option<u32>,
-}
-
-/****************
-WRAPPERS
-****************/
-impl Response {
-    pub fn error() -> Response {
-        return Response {
-            status: "error".to_string(),
-            checkpoint_id: None,
-            worker_id: None,
-            worker_fingerprint: None,
-            location: None,
-            authorized_roles: None,
-            role_id: None,
-        };
-    }
-    
-    pub fn auth_info(
-        checkpoint_id: u32,
-        worker_id: u32,
-        worker_fingerprint: String,
-        location: String,
-        authorized_roles: String,
-        role_id: u32,
-    ) -> Response {
-        return Response {
-            status: "success".to_string(),
-            checkpoint_id: Some(checkpoint_id),
-            worker_id: Some(worker_id),
-            worker_fingerprint: Some(worker_fingerprint),
-            location: Some(location),
-            authorized_roles: Some(authorized_roles),
-            role_id: Some(role_id),
-        };
-    }
-    
-    pub fn init_success(conn: &Connection) -> Response {
-        return Response {
-            status: "success".to_string(),
-            checkpoint_id: Some(conn.last_insert_rowid() as u32),
-            worker_id: None,
-            worker_fingerprint: None,
-            location: None,
-            authorized_roles: None,
-            role_id: None,
-        };
-    }
-    
-    pub fn enroll_success(conn: &Connection) -> Response {
-        return Response {
-            status: "success".to_string(),
-            checkpoint_id: None,
-            worker_id: Some(conn.last_insert_rowid() as u32),
-            worker_fingerprint: None,
-            location: None,
-            authorized_roles: None,
-            role_id: None,
-        };
-    }
-    
-    pub fn update_delete_success() -> Response {
-        return Response {
-            status: "success".to_string(),
-            checkpoint_id: None,
-            worker_id: None,
-            worker_fingerprint: None,
-            location: None,
-            authorized_roles: None,
-            role_id: None,
-        };
-    }
-}
-
-/*
-* Name: str_to_int
-* Function: converts a number in string representation to a signed 32 bit integer.
-*/
-fn str_to_int(input: &str) -> Result<i32, String> {
-    input
-    .trim()
-    .parse::<i32>()
-    .map_err(|_| format!("Invalid integer: {}", input))
-}
 
 /*
 * Name: initialize_database
@@ -177,7 +67,7 @@ fn initialize_database() -> Result<Connection> {
 * Function: Searches for the command in the Request structure from the port server,
 *           and services the request accordingly.
 */
-async fn handle_port_server_request(conn: Arc<Mutex<Connection>>, req: Request) -> Response {
+async fn handle_port_server_request(conn: Arc<Mutex<Connection>>, req: DatabaseRequest) -> DatabaseReply {
     let conn = conn.lock().await;
     println!("Received a command: {}", req.command);
     
@@ -189,15 +79,16 @@ async fn handle_port_server_request(conn: Arc<Mutex<Connection>>, req: Request) 
             );
             match result {
                 Ok(_) => {
+                    let checkpoint_id = conn.last_insert_rowid() as u32;
                     println!(
                         "Added checkpoint to the database! ID is {}",
-                        conn.last_insert_rowid()
+                        checkpoint_id
                     );
-                    return Response::init_success(&conn);
+                    return DatabaseReply::init_reply(checkpoint_id);
                 }
                 Err(e) => {
                     eprintln!("Issue with adding checkpoint to the database: {}", e);
-                    return Response::error();
+                    return DatabaseReply::error();
                 }
             }
         }
@@ -211,60 +102,35 @@ async fn handle_port_server_request(conn: Arc<Mutex<Connection>>, req: Request) 
             
             match checkpoint_data {
                 Ok((location, allowed_roles)) => {
-                    let worker_data: Result<(String, String, String, u32), _> = conn.query_row(
-                        "SELECT employees.name, employees.fingerprint_hash, employees.allowed_locations, roles.id \
+                    let worker_data: Result<(String, String, u32), _> = conn.query_row(
+                        "SELECT employees.fingerprint_hash, employees.allowed_locations, roles.id \
                 FROM employees \
                 JOIN roles ON employees.role_id = roles.id \
                 WHERE employees.id = ?1",
                         params![req.worker_id],
-                        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+                        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
                     );
                     
                     match worker_data {
-                        Ok((worker_name, worker_fingerprint, allowed_locations, role_id)) => {
-                            println!("Worker fingerprint is: {}", worker_fingerprint);
-                            
-                            let authorized_roles: Vec<String> = allowed_roles
-                            .split(',')
-                            .map(|role| role.trim().to_string())
-                            .collect();
-                            
-                            let role_str = Role::as_str(role_id as usize).unwrap().to_string();
-                            
-                            if !authorized_roles.contains(&role_str) {
-                                println!("Role not authorized for this checkpoint.");
-                                return Response::error();
-                            }
-                            
-                            let allowed_locations_vec: Vec<String> = allowed_locations
-                            .split(',')
-                            .map(|loc| loc.trim().to_string())
-                            .collect();
-                            
-                            if !allowed_locations_vec.contains(&location) {
-                                println!("Location not authorized for this worker.");
-                                return Response::error();
-                            }
-                            
-                            println!("Worker authorized!");
-                            return Response::auth_info(
-                                req.checkpoint_id.unwrap(),
-                                req.worker_id.unwrap(),
-                                worker_fingerprint,
-                                location,
-                                allowed_roles,
-                                role_id,
-                            );
+                        Ok((worker_fingerprint, allowed_locations, role_id)) => {
+                            return DatabaseReply::auth_reply(req.checkpoint_id.unwrap(),
+                                                            req.worker_id.unwrap(),
+                                                        worker_fingerprint,
+                                                        role_id,
+                                                        allowed_roles,
+                                                        location,
+                                                        allowed_locations,
+                                                    );
                         }
                         Err(e) => {
                             eprintln!("Error fetching worker details: {}", e);
-                            return Response::error();
+                            return DatabaseReply::error();
                         }
                     }
                 }
                 Err(e) => {
                     eprintln!("Error fetching checkpoint details: {}", e);
-                    return Response::error();
+                    return DatabaseReply::error();
                 }
             }
         }
@@ -282,22 +148,22 @@ async fn handle_port_server_request(conn: Arc<Mutex<Connection>>, req: Request) 
             
             if exists {
                 println!("User already exists!");
-                return Response::error();
+                return DatabaseReply::error();
             }
             
             let result = conn.execute(
                 "INSERT INTO employees (name, fingerprint_hash, role_id, allowed_locations) VALUES (?1, ?2, ?3, ?4)",
                 params![req.worker_name, req.worker_fingerprint, req.role_id, req.location],
             );
-            
+            // fetch id
             match result {
                 Ok(_) => {
-                    return Response::enroll_success(&conn);
+                    return DatabaseReply::success();
                 }
                 
                 Err(e) => {
                     eprintln!("Could not enroll user {}", e);
-                    return Response::error();
+                    return DatabaseReply::error();
                 }
             }
         }
@@ -311,15 +177,15 @@ async fn handle_port_server_request(conn: Arc<Mutex<Connection>>, req: Request) 
             match result {
                 Ok(affected) => {
                     if affected > 0 {
-                        return Response::update_delete_success();
+                        return DatabaseReply::success();
                     } else {
                         println!("Zero affected users");
-                        return Response::error();
+                        return DatabaseReply::error();
                     }
                 }
                 Err(e) => {
                     eprintln!("An error occured with adding a user: {}", e);
-                    return Response::error();
+                    return DatabaseReply::error();
                 }
             }
         }
@@ -331,21 +197,21 @@ async fn handle_port_server_request(conn: Arc<Mutex<Connection>>, req: Request) 
             match result {
                 Ok(affected) => {
                     if affected > 0 {
-                        return Response::update_delete_success();
+                        return DatabaseReply::success();
                     } else {
                         println!("Affected users is zero");
-                        return Response::error();
+                        return DatabaseReply::error();
                     }
                 }
                 Err(e) => {
                     eprintln!("Error with deleting a worker: {}", e);
-                    return Response::error();
+                    return DatabaseReply::error();
                 }
             }
         }
         _ => {
             println!("Unknown command");
-            return Response::error();
+            return DatabaseReply::error();
         }
     }
 }
@@ -360,8 +226,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let database = initialize_database()?;
     let database = Arc::new(Mutex::new(database));
     
-    let listener = TcpListener::bind(IP_ADDRESS).await?;
-    println!("Database server is listening on {}", IP_ADDRESS);
+    let listener = TcpListener::bind(DATABASE_ADDR).await?;
+    println!("Database server is listening on {}", DATABASE_ADDR);
     
     loop {
         let (mut socket, addr) = listener.accept().await?;
@@ -376,26 +242,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Ok(0) => println!("Client at {} has closed the connection", addr),
                 Ok(n) => {
                     let request_json = String::from_utf8_lossy(&buffer[..n]);
-                    let request: Result<Request, _> = serde_json::from_str(&request_json);
+                    let request: Result<DatabaseRequest, _> = serde_json::from_str(&request_json);
                     
-                    let response = match request {
+                    let database_reply = match request {
                         Ok(req) => handle_port_server_request(database, req).await,
-                        Err(_) => Response::error(),
+                        Err(_) => DatabaseReply::error(),
                     };
                     
-                    let mut response_json = match serde_json::to_string(&response) {
+                    let mut reply_json = match serde_json::to_string(&database_reply) {
                         Ok(json) => json,
                         Err(e) => {
-                            eprintln!("Error serializing response: {}", e);
+                            eprintln!("Error serializing: {}", e);
                             "".to_string()
                         }
                     };
                     
                     // Append null terminator to tell the server when to stop reading
-                    response_json.push('\0');
+                    reply_json.push('\0');
                     
-                    if let Err(e) = socket.write_all(response_json.as_bytes()).await {
-                        eprintln!("Failed to send response: {}", e);
+                    if let Err(e) = socket.write_all(reply_json.as_bytes()).await {
+                        eprintln!("Failed to send DatabaseReply: {}", e);
                     }
                 }
                 Err(e) => eprintln!("Error with the connection: {}", e),

@@ -2,7 +2,6 @@
     IMPORTS
 ****************/
 use ctrlc;
-use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     io::{BufRead, BufReader, Write},
@@ -12,106 +11,10 @@ use std::{
     thread,
     time::Duration,
 };
-/*****************
-    CONSTANTS
-*****************/
-const SERVER_ADDR: &str = "127.0.0.1:8080";
-const DATABASE_ADDR: &str = "127.0.0.1:3036";
+use common::{
+    CheckpointReply, CheckpointState, Client, DatabaseReply, DatabaseRequest, Role, DATABASE_ADDR, SERVER_ADDR
+};
 
-#[derive(Deserialize)]
-struct CommandWrapper {
-    command: String,
-}
-
-#[derive(Clone)]
-struct Client {
-    id: usize,
-    stream: Arc<Mutex<TcpStream>>,
-    state: CheckpointState,
-}
-
-#[derive(Deserialize, Serialize, Clone)]
-enum CheckpointState {
-    WaitForRfid,
-    WaitForFingerprint,
-    AuthSuccessful,
-    AuthFailed,
-}
-
-
-#[derive(Deserialize, Serialize, Clone)]
-enum EnrollUpdateDeleteStatus {
-    Success,
-    Failed,
-}
-
-// Format for requests to the Database
-
-#[derive(Deserialize, Serialize, Clone)]
-struct DatabaseRequest {
-    command: String,
-    checkpoint_id: Option<u32>,
-    worker_id: Option<u32>,
-    worker_name: Option<String>,
-    worker_fingerprint: Option<String>,
-    location: Option<String>,
-    authorized_roles: Option<String>,
-    role_id: Option<u32>,
-}
-
-// Database response format
-
-#[derive(Deserialize, Serialize, Clone)]
-struct DatabaseReply {
-    status: String,
-    checkpoint_id: Option<u32>,
-    worker_id: Option<u32>,
-    worker_fingerprint: Option<String>,
-    data: Option<String>,
-    role_id: Option<u32>,
-    auth_response: Option<CheckpointState>,
-    update_delete_enroll_result: Option<EnrollUpdateDeleteStatus>,
-}
-
-impl DatabaseReply {
-    pub fn success(checkpoint_id: Option<u32>) -> Self {
-        DatabaseReply {
-            status: "success".to_string(),
-            checkpoint_id: checkpoint_id,
-            worker_id: None,
-            worker_fingerprint: None,
-            data: None,
-            role_id: None,
-            auth_response: None,
-            update_delete_enroll_result: None,
-        }
-    }
-
-    pub fn error() -> Self {
-        DatabaseReply {
-            status: "error".to_string(),
-            checkpoint_id: None,
-            worker_id: None,
-            worker_fingerprint: None,
-            data: None,
-            role_id: None,
-            auth_response: None,
-            update_delete_enroll_result: None,
-        }
-    }
-    pub fn auth_reply(state: CheckpointState) -> Self {
-        DatabaseReply {
-            status: "success".to_string(),
-            checkpoint_id: None,
-            worker_id: None,
-            worker_fingerprint: None,
-            data: None,
-            role_id: None,
-            auth_response: Some(state),
-            update_delete_enroll_result: None,
-        }
-    }
-}
 
 /*
  * Name: set_stream_timeout
@@ -156,7 +59,26 @@ fn authenticate_rfid(rfid_tag: &Option<u32>, checkpoint_id: &Option<u32>) -> boo
                 if response.status != "success".to_string() {
                     return false;
                 }
-                return Some(rfid) == response.worker_id.as_ref();
+                let authorized_roles: Vec<String> = response.authorized_roles
+                    .as_deref() // Converts Option<String> to Option<&str>
+                    .unwrap_or("") // If None, provide a default empty string
+                    .split(',')
+                    .map(|role| role.trim().to_string())
+                    .collect();
+                            
+                let role_str = Role::as_str(response.role_id.unwrap() as usize).unwrap().to_string();
+                            
+                            
+                let allowed_locations_vec: Vec<String> = response.allowed_locations
+                    .as_deref()
+                    .unwrap_or("")
+                    .split(',')
+                    .map(|loc| loc.trim().to_string())
+                    .collect();
+                            
+                return Some(rfid) == response.worker_id.as_ref() && // check IDs match up
+                       authorized_roles.contains(&role_str) && // check role is allowed at checkpoint
+                       allowed_locations_vec.contains(&response.location.unwrap()); // check worker is allowed at that port                                      
             }
             Err(e) => {
                 eprintln!("Error querying database for RFID: {:?}", e);
@@ -324,9 +246,9 @@ fn parse_command_from_request(
     match request.command.as_str() {
         "INIT_REQUEST" => handle_init_request(request, stream),
         "AUTHENTICATE" => handle_authenticate(request, stream, client_id, clients),
-        "ENROLL" => handle_database_request(request, stream, "ENROLL"),
-        "UPDATE" => handle_database_request(request, stream, "UPDATE"),
-        "DELETE" => handle_database_request(request, stream, "DELETE"),
+        "ENROLL" => handle_database_request(request, stream),
+        "UPDATE" => handle_database_request(request, stream),
+        "DELETE" => handle_database_request(request, stream),
         _ => Err("Unknown command".into()),
     }
 }
@@ -341,7 +263,7 @@ fn handle_init_request(
 ) -> Result<(), String> {
     let reply = query_database(DATABASE_ADDR, &request).map(|db_reply| {
         if db_reply.status == "success" {
-            DatabaseReply::success(Some(db_reply.checkpoint_id.unwrap_or(0)))
+            DatabaseReply::init_reply(db_reply.checkpoint_id.unwrap())
         } else {
             DatabaseReply::error()
         }
@@ -368,25 +290,25 @@ fn handle_authenticate(
         CheckpointState::WaitForRfid => {
             if authenticate_rfid(&request.worker_id, &request.checkpoint_id) {
                 client.state = CheckpointState::WaitForFingerprint;
-                DatabaseReply::auth_reply(CheckpointState::WaitForFingerprint)
+                CheckpointReply::auth_reply(CheckpointState::WaitForFingerprint)
             } else {
                 client.state = CheckpointState::AuthFailed;
-                DatabaseReply::auth_reply(CheckpointState::AuthFailed)
+                CheckpointReply::auth_reply(CheckpointState::AuthFailed)
             }
         }
         CheckpointState::WaitForFingerprint => {
             if authenticate_fingerprint(&request.worker_id, &request.worker_fingerprint, &request.checkpoint_id) {
                 client.state = CheckpointState::AuthSuccessful;
-                DatabaseReply::auth_reply(CheckpointState::AuthSuccessful)
+                CheckpointReply::auth_reply(CheckpointState::AuthSuccessful)
             } else {
                 client.state = CheckpointState::AuthFailed;
-                DatabaseReply::auth_reply(CheckpointState::AuthFailed)
+                CheckpointReply::auth_reply(CheckpointState::AuthFailed)
             }
         }
         CheckpointState::AuthSuccessful | CheckpointState::AuthFailed => {
             thread::sleep(Duration::from_secs(5));
             client.state = CheckpointState::WaitForRfid;
-            DatabaseReply::auth_reply(CheckpointState::WaitForRfid)
+            CheckpointReply::auth_reply(CheckpointState::WaitForRfid)
         }
     };
 
@@ -400,11 +322,10 @@ fn handle_authenticate(
 fn handle_database_request(
     request: DatabaseRequest,
     stream: &Arc<Mutex<TcpStream>>,
-    command: &str,
 ) -> Result<(), String> {
     let reply = query_database(DATABASE_ADDR, &request).map(|db_reply| {
         if db_reply.status == "success" {
-            DatabaseReply::success(request.checkpoint_id)
+            DatabaseReply::init_reply(request.checkpoint_id.unwrap())
         } else {
             DatabaseReply::error()
         }
