@@ -127,14 +127,15 @@ fn main() {
         Ok(stream) => {
             println!("Connected to Server!");
             lcd.display_string("Connected!", LCD_LINE_1);
-            thread::sleep(Duration::from_secs(2));
+            thread::sleep(Duration::from_secs(5));
             lcd.clear();
             stream
         }
         Err(e) => {
             eprintln!("Failed to connect to server: {}", e);
-            lcd.display_string("Connection Fail", LCD_LINE_1);
-            thread::sleep(Duration::from_secs(2));
+            lcd.display_string("Connection to", LCD_LINE_1);
+            lcd.display_string("server failed", LCD_LINE_2);
+            thread::sleep(Duration::from_secs(5));
             lcd.clear();
             return;
         }
@@ -148,7 +149,7 @@ fn main() {
     if init_reply.status == "error" {
         eprintln!("Error with registering the checkpoint");
         lcd.display_string("Init failed", LCD_LINE_1);
-        thread::sleep(Duration::from_secs(2));
+        thread::sleep(Duration::from_secs(5));
         lcd.clear();
         return;
     }
@@ -164,14 +165,14 @@ fn main() {
                     println!("Please give your name");
 
                     lcd.display_string("Enter Name", LCD_LINE_1);
-                    thread::sleep(Duration::from_secs(2));
+                    thread::sleep(Duration::from_secs(5));
                     lcd.clear();
 
                     let worker_name = "Jim Bob".to_string();
                     println!("Please enter your role");
 
                     lcd.display_string("Enter Role", LCD_LINE_1);
-                    thread::sleep(Duration::from_secs(2));
+                    thread::sleep(Duration::from_secs(5));
                     lcd.clear();
 
                     let role_id = 2;
@@ -179,7 +180,7 @@ fn main() {
 
                     lcd.display_string("Enter Your", LCD_LINE_1);
                     lcd.display_string("Fingerprint", LCD_LINE_2);
-                    thread::sleep(Duration::from_secs(2));
+                    thread::sleep(Duration::from_secs(5));
                     lcd.clear();
 
                     let worker_fingerprint = "dummy fingerprint".to_string();
@@ -190,7 +191,7 @@ fn main() {
                     // Send and receive the response
                     let enroll_reply = send_and_receive(&mut stream, &enroll_req);
                     lcd.display_string("Enrolling...", LCD_LINE_1);
-                    thread::sleep(Duration::from_secs(2));
+                    thread::sleep(Duration::from_secs(5));
                     lcd.clear();
 
         
@@ -199,13 +200,13 @@ fn main() {
                         println!("User enrolled successfully!");
                         lcd.display_string("Enrolled", LCD_LINE_1);
                         lcd.display_string("Successfully!", LCD_LINE_2);
-                        thread::sleep(Duration::from_secs(2));
+                        thread::sleep(Duration::from_secs(5));
                         lcd.clear();
                         return;
                     } else {
                         println!("Error with enrolling the user");
                         lcd.display_string("Error!", LCD_LINE_1);
-                        thread::sleep(Duration::from_secs(2));
+                        thread::sleep(Duration::from_secs(5));
                         lcd.clear();
 
                         return;
@@ -236,13 +237,13 @@ fn main() {
                         println!("User updated successfully!");
                         lcd.display_string("Updated", LCD_LINE_1);
                         lcd.display_string("Successfully!", LCD_LINE_2);
-                        thread::sleep(Duration::from_secs(2));
+                        thread::sleep(Duration::from_secs(5));
                         lcd.clear();
                         return;
                     } else {
                         println!("Error with updating the user");
                         lcd.display_string("Error", LCD_LINE_1);
-                        thread::sleep(Duration::from_secs(2));
+                        thread::sleep(Duration::from_secs(5));
                         lcd.clear();
                         return;
                     }
@@ -269,13 +270,13 @@ fn main() {
                         println!("User deleted successfully!");
                         lcd.display_string("Deleted", LCD_LINE_1);
                         lcd.display_string("Successfully!", LCD_LINE_2);
-                        thread::sleep(Duration::from_secs(2));
+                        thread::sleep(Duration::from_secs(5));
                         lcd.clear();
                         return;
                     } else {
                         println!("Error with deleting the user");
                         lcd.display_string("Error", LCD_LINE_1);
-                        thread::sleep(Duration::from_secs(2));
+                        thread::sleep(Duration::from_secs(5));
                         lcd.clear();
 
                         return;
@@ -303,7 +304,7 @@ fn main() {
                             println!("Authentication failed.");
                             lcd.clear();
                             lcd.display_string("Access Denied", LCD_LINE_1);
-                            thread::sleep(Duration::from_secs(2));
+                            thread::sleep(Duration::from_secs(5));
                             lcd.clear();
                             continue;
                         } else {
@@ -311,7 +312,7 @@ fn main() {
                             lcd.clear();
                             lcd.display_string("Please scan", LCD_LINE_1);
                             lcd.display_string("fingerprint", LCD_LINE_2);
-                            thread::sleep(Duration::from_secs(2));
+                            thread::sleep(Duration::from_secs(5));
                             lcd.clear();
                             lcd.display_string("Validating", LCD_LINE_1);
                         }
@@ -325,14 +326,14 @@ fn main() {
                             println!("Authentication failed.");
                             lcd.clear();
                             lcd.display_string("Access Denied", LCD_LINE_1);
-                            thread::sleep(Duration::from_secs(2));
+                            thread::sleep(Duration::from_secs(5));
                             lcd.clear();
                             continue;
                         } else {
                             println!("Authentication successful");
                             lcd.clear();
                             lcd.display_string("Access Granted", LCD_LINE_1);
-                            thread::sleep(Duration::from_secs(2));
+                            thread::sleep(Duration::from_secs(5));
                             lcd.clear();
 
                         }
