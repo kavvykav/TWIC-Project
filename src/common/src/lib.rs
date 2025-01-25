@@ -4,6 +4,9 @@
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 use std::net::TcpStream;
+use std::thread;
+use rppal::i2c::I2c;
+use std::time::Duration;
 
 /*************************************
     ROLES FOR ROLE BASED AUTH
@@ -279,6 +282,77 @@ impl DatabaseReply {
             location: None,
             auth_response: None,
             allowed_locations: None,
+        }
+    }
+}
+
+/**************************
+*      LCD DISPLAY
+*************************/
+const LCD_ADDR: u16 = 0x27; // Default I2C address for most 1602 I2C LCDs
+const LCD_CHR: u8 = 1;
+const LCD_CMD: u8 = 0;
+pub const LCD_LINE_1: u8 = 0x80; // Line 1 start
+pub const LCD_LINE_2: u8 = 0xC0; // Line 2 start
+const LCD_BACKLIGHT: u8 = 0x08; // On
+const ENABLE: u8 = 0b00000100;
+
+pub struct Lcd {
+    i2c: I2c,
+}
+
+impl Lcd {
+    pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
+        let mut i2c = I2c::new()?;
+        i2c.set_slave_address(LCD_ADDR)?;
+        let lcd = Lcd { i2c };
+        lcd.init();
+        Ok(lcd)
+    }
+
+    pub fn init(&self) {
+        self.write_byte(0x33, LCD_CMD); // Initialize
+        self.write_byte(0x32, LCD_CMD); // Set to 4-bit mode
+        self.write_byte(0x06, LCD_CMD); // Cursor move direction
+        self.write_byte(0x0C, LCD_CMD); // Turn cursor off
+        self.write_byte(0x28, LCD_CMD); // 2-line display
+        self.write_byte(0x01, LCD_CMD); // Clear display
+        thread::sleep(Duration::from_millis(2));
+    }
+
+    pub fn write_byte(&self, bits: u8, mode: u8) {
+        let high_nibble = mode | (bits & 0xF0) | LCD_BACKLIGHT;
+        let low_nibble = mode | ((bits << 4) & 0xF0) | LCD_BACKLIGHT;
+
+        self.i2c_write(high_nibble);
+        self.enable_pulse(high_nibble);
+
+        self.i2c_write(low_nibble);
+        self.enable_pulse(low_nibble);
+    }
+
+    pub fn i2c_write(&self, data: u8) {
+        if let Err(e) = self.i2c.block_write(0, &[data]) {
+            eprintln!("I2C write error: {:?}", e);
+        }
+    }
+
+    pub fn enable_pulse(&self, data: u8) {
+        self.i2c_write(data | ENABLE);
+        thread::sleep(Duration::from_micros(500));
+        self.i2c_write(data & !ENABLE);
+        thread::sleep(Duration::from_micros(500));
+    }
+
+    pub fn clear(&self) {
+        self.write_byte(0x01, LCD_CMD);
+        thread::sleep(Duration::from_millis(2));
+    }
+
+    pub fn display_string(&self, text: &str, line: u8) {
+        self.write_byte(line, LCD_CMD);
+        for c in text.chars() {
+            self.write_byte(c as u8, LCD_CHR);
         }
     }
 }
