@@ -1,7 +1,7 @@
 /****************
     IMPORTS
 ****************/
-use common::{CheckpointRequest, CheckpointReply, CheckpointState};
+use common::{CheckpointRequest, CheckpointReply, CheckpointState, Lcd, LCD_LINE_1, LCD_LINE_2};
 use std::net::TcpStream;
 use std::io::{Write, Read, BufRead, BufReader};
 use std::env;
@@ -80,9 +80,26 @@ fn send_and_receive(stream: &mut TcpStream, init_req: &CheckpointRequest) -> Che
     return response;
 }
 
+/*
+ * Name: init_lcd
+ * Function: Wrapper function to initialize the LCD.
+ */
+fn init_lcd() -> Option<Lcd> {
+    match Lcd::new() {
+        Ok(lcd) => {
+            println!("LCD initialized successfully.");
+            Some(lcd)
+        }
+        Err(e) => {
+            eprintln!("Failed to initialize LCD: {}", e);
+            None
+        }
+    }
+}
+
 /* 
  * Name: main
- * Funnction: serves as the main checkpoint logic
+ * Function: serves as the main checkpoint logic
  */
 fn main() {
     // Parse command line arguments to get the port location and roles that this
@@ -99,15 +116,26 @@ fn main() {
     // Get authorized roles for this checkpoint
     let authorized_roles = args[3..].to_vec().join(",");
 
+    // Initialize LCD
+    let mut lcd = match init_lcd() {
+        Some(lcd) => lcd,
+        None => return, // Exit if LCD initialization fails
+    };
 
     // Connect to Port Server
     let mut stream = match TcpStream::connect("127.0.0.1:8080") {
         Ok(stream) => {
             println!("Connected to Server!");
+            lcd.display_string("Connected!", LCD_LINE_1);
+            thread::sleep(Duration::from_secs(2));
+            lcd.clear();
             stream
         }
         Err(e) => {
             eprintln!("Failed to connect to server: {}", e);
+            lcd.display_string("Connection Fail", LCD_LINE_1);
+            thread::sleep(Duration::from_secs(2));
+            lcd.clear();
             return;
         }
     };
@@ -119,6 +147,9 @@ fn main() {
 
     if init_reply.status == "error" {
         eprintln!("Error with registering the checkpoint");
+        lcd.display_string("Init failed", LCD_LINE_1);
+        thread::sleep(Duration::from_secs(2));
+        lcd.clear();
         return;
     }
 
@@ -131,10 +162,26 @@ fn main() {
             match function.as_str() {
                 "enroll" => {
                     println!("Please give your name");
+
+                    lcd.display_string("Enter Name", LCD_LINE_1);
+                    thread::sleep(Duration::from_secs(2));
+                    lcd.clear();
+
                     let worker_name = "Jim Bob".to_string();
                     println!("Please enter your role");
+
+                    lcd.display_string("Enter Role", LCD_LINE_1);
+                    thread::sleep(Duration::from_secs(2));
+                    lcd.clear();
+
                     let role_id = 2;
                     println!("Please scan your fingerprint");
+
+                    lcd.display_string("Enter Your", LCD_LINE_1);
+                    lcd.display_string("Fingerprint", LCD_LINE_2);
+                    thread::sleep(Duration::from_secs(2));
+                    lcd.clear();
+
                     let worker_fingerprint = "dummy fingerprint".to_string();
                     
                     // Construct enroll request
@@ -142,15 +189,25 @@ fn main() {
         
                     // Send and receive the response
                     let enroll_reply = send_and_receive(&mut stream, &enroll_req);
+                    lcd.display_string("Enrolling...", LCD_LINE_1);
+                    thread::sleep(Duration::from_secs(2));
+                    lcd.clear();
+
         
                     // Error check
                     if enroll_reply.status == "success".to_string() {
                         println!("User enrolled successfully!");
-                        thread::sleep(Duration::new(5, 0));
+                        lcd.display_string("Enrolled", LCD_LINE_1);
+                        lcd.display_string("Successfully!", LCD_LINE_2);
+                        thread::sleep(Duration::from_secs(2));
+                        lcd.clear();
                         return;
                     } else {
                         println!("Error with enrolling the user");
-                        thread::sleep(Duration::new(5, 0));
+                        lcd.display_string("Error!", LCD_LINE_1);
+                        thread::sleep(Duration::from_secs(2));
+                        lcd.clear();
+
                         return;
                     }
         
@@ -158,6 +215,12 @@ fn main() {
                 }
                 "update" => {
                     println!("Please give your ID");
+
+                    lcd.display_string("Please Scan", LCD_LINE_1);
+                    lcd.display_string("your card", LCD_LINE_2);
+                    thread::sleep(Duration::from_secs(2));
+                    lcd.clear();
+
                     let worker_id = 1;
                     let new_role_id = 3;
                     let new_location = "Halifax".to_string();
@@ -171,17 +234,28 @@ fn main() {
                     // Error check
                     if update_reply.status == "success".to_string() {
                         println!("User updated successfully!");
-                        thread::sleep(Duration::new(5, 0));
+                        lcd.display_string("Updated", LCD_LINE_1);
+                        lcd.display_string("Successfully!", LCD_LINE_2);
+                        thread::sleep(Duration::from_secs(2));
+                        lcd.clear();
                         return;
                     } else {
                         println!("Error with updating the user");
-                        thread::sleep(Duration::new(5, 0));
+                        lcd.display_string("Error", LCD_LINE_1);
+                        thread::sleep(Duration::from_secs(2));
+                        lcd.clear();
                         return;
                     }
                 }
         
                 "delete" => {
                     println!("Please give your ID");
+
+                    lcd.display_string("Please Scan", LCD_LINE_1);
+                    lcd.display_string("your card", LCD_LINE_2);
+                    thread::sleep(Duration::from_secs(2));
+                    lcd.clear();
+
                     let worker_id = 1;
         
                     // Construct request structure
@@ -193,11 +267,17 @@ fn main() {
                     // Error check
                     if delete_reply.status == "success".to_string() {
                         println!("User deleted successfully!");
-                        thread::sleep(Duration::new(5, 0));
+                        lcd.display_string("Deleted", LCD_LINE_1);
+                        lcd.display_string("Successfully!", LCD_LINE_2);
+                        thread::sleep(Duration::from_secs(2));
+                        lcd.clear();
                         return;
                     } else {
                         println!("Error with deleting the user");
-                        thread::sleep(Duration::new(5, 0));
+                        lcd.display_string("Error", LCD_LINE_1);
+                        thread::sleep(Duration::from_secs(2));
+                        lcd.clear();
+
                         return;
                     }
                 }
@@ -206,19 +286,34 @@ fn main() {
                     loop {
                         // Collect card info (first layer of authentication)
                         println!("Please tap your card");
+
+                        lcd.display_string("Please Scan", LCD_LINE_1);
+                        thread::sleep(Duration::from_secs(2));
+                        lcd.clear();
+
                         let worker_id = 1;
 
                         // Send information to port server
                         println!("Validating card...");
+                        lcd.display_string("Validating", LCD_LINE_1);
+
                         let rfid_auth_req = CheckpointRequest::rfid_auth_request(checkpoint_id, worker_id);
                         let auth_reply: CheckpointReply = send_and_receive(&mut stream, &rfid_auth_req);
                         if let Some(CheckpointState::AuthFailed) = auth_reply.auth_response {
                             println!("Authentication failed.");
-                            thread::sleep(Duration::new(5, 0));
+                            lcd.clear();
+                            lcd.display_string("Access Denied", LCD_LINE_1);
+                            thread::sleep(Duration::from_secs(2));
+                            lcd.clear();
                             continue;
                         } else {
                             println!("Please scan your fingerprint");
-                            thread::sleep(Duration::new(5, 0));
+                            lcd.clear();
+                            lcd.display_string("Please scan", LCD_LINE_1);
+                            lcd.display_string("fingerprint", LCD_LINE_2);
+                            thread::sleep(Duration::from_secs(2));
+                            lcd.clear();
+                            lcd.display_string("Validating", LCD_LINE_1);
                         }
                         
         
@@ -228,12 +323,19 @@ fn main() {
                         let fingerprint_auth_reply: CheckpointReply = send_and_receive(&mut stream, &fingerprint_auth_request);
                         if let Some(CheckpointState::AuthFailed) = fingerprint_auth_reply.auth_response {
                             println!("Authentication failed.");
-                            thread::sleep(Duration::new(5, 0));
+                            lcd.clear();
+                            lcd.display_string("Access Denied", LCD_LINE_1);
+                            thread::sleep(Duration::from_secs(2));
+                            lcd.clear();
                             continue;
                         } else {
                             println!("Authentication successful");
-                        }                
-        
+                            lcd.clear();
+                            lcd.display_string("Access Granted", LCD_LINE_1);
+                            thread::sleep(Duration::from_secs(2));
+                            lcd.clear();
+
+                        }
                         // 5 second timeout between loop iterations
                         thread::sleep(Duration::new(5, 0));
                     }
