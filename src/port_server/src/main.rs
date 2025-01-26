@@ -1,6 +1,10 @@
 /****************
     IMPORTS
 ****************/
+use common::{
+    CheckpointReply, CheckpointState, Client, DatabaseReply, DatabaseRequest, Role, DATABASE_ADDR,
+    SERVER_ADDR,
+};
 use ctrlc;
 use std::{
     collections::HashMap,
@@ -11,10 +15,6 @@ use std::{
     thread,
     time::Duration,
 };
-use common::{
-    CheckpointReply, CheckpointState, Client, DatabaseReply, DatabaseRequest, Role, DATABASE_ADDR, SERVER_ADDR
-};
-
 
 /*
  * Name: set_stream_timeout
@@ -52,33 +52,40 @@ fn authenticate_rfid(rfid_tag: &Option<u32>, checkpoint_id: &Option<u32>) -> boo
 
         match query_database(DATABASE_ADDR, &request) {
             Ok(response) => {
-                println!("RFID comparison: from checkpoint: {}, from database: {:?}", rfid, response.worker_id);
+                println!(
+                    "RFID comparison: from checkpoint: {}, from database: {:?}",
+                    rfid, response.worker_id
+                );
                 println!("Response status: {}", response.status);
 
                 // Error check
                 if response.status != "success".to_string() {
                     return false;
                 }
-                let authorized_roles: Vec<String> = response.authorized_roles
+                let authorized_roles: Vec<String> = response
+                    .authorized_roles
                     .as_deref() // Converts Option<String> to Option<&str>
                     .unwrap_or("") // If None, provide a default empty string
                     .split(',')
                     .map(|role| role.trim().to_string())
                     .collect();
-                            
-                let role_str = Role::as_str(response.role_id.unwrap() as usize).unwrap().to_string();
-                            
-                            
-                let allowed_locations_vec: Vec<String> = response.allowed_locations
+
+                let role_str = Role::as_str(response.role_id.unwrap() as usize)
+                    .unwrap()
+                    .to_string();
+
+                let allowed_locations_vec: Vec<String> = response
+                    .allowed_locations
                     .as_deref()
                     .unwrap_or("")
                     .split(',')
                     .map(|loc| loc.trim().to_string())
                     .collect();
-                            
+
                 return Some(rfid) == response.worker_id.as_ref() && // check IDs match up
                        authorized_roles.contains(&role_str) && // check role is allowed at checkpoint
-                       allowed_locations_vec.contains(&response.location.unwrap()); // check worker is allowed at that port                                      
+                       allowed_locations_vec.contains(&response.location.unwrap());
+                // check worker is allowed at that port
             }
             Err(e) => {
                 eprintln!("Error querying database for RFID: {:?}", e);
@@ -94,8 +101,14 @@ fn authenticate_rfid(rfid_tag: &Option<u32>, checkpoint_id: &Option<u32>) -> boo
  * Name: authenticate_fingerprint
  * Function: Similar to rfid with logic
 */
-fn authenticate_fingerprint(rfid_tag: &Option<u32>, fingerprint_hash: &Option<String>, checkpoint_id: &Option<u32>) -> bool {
-    if let (Some(rfid), Some(fingerprint), Some(checkpoint)) = (rfid_tag, fingerprint_hash, checkpoint_id) {
+fn authenticate_fingerprint(
+    rfid_tag: &Option<u32>,
+    fingerprint_hash: &Option<String>,
+    checkpoint_id: &Option<u32>,
+) -> bool {
+    if let (Some(rfid), Some(fingerprint), Some(checkpoint)) =
+        (rfid_tag, fingerprint_hash, checkpoint_id)
+    {
         let request = DatabaseRequest {
             command: "AUTHENTICATE".to_string(),
             checkpoint_id: Some(checkpoint.clone()),
@@ -109,8 +122,14 @@ fn authenticate_fingerprint(rfid_tag: &Option<u32>, fingerprint_hash: &Option<St
 
         match query_database(DATABASE_ADDR, &request) {
             Ok(response) => {
-                println!("RFID comparison: from checkpoint: {}, from database: {:?}", rfid, response.worker_id);
-                println!("Fingerprint comparison: from checkpoint: {}, from database: {:?}", fingerprint, response.worker_fingerprint);
+                println!(
+                    "RFID comparison: from checkpoint: {}, from database: {:?}",
+                    rfid, response.worker_id
+                );
+                println!(
+                    "Fingerprint comparison: from checkpoint: {}, from database: {:?}",
+                    fingerprint, response.worker_fingerprint
+                );
 
                 // Error check
                 if response.status != "success".to_string() {
@@ -148,13 +167,7 @@ fn query_database(database_addr: &str, request: &DatabaseRequest) -> Result<Data
         .map_err(|e| format!("Failed to connect to database: {}", e))?;
 
     stream
-        .write_all(
-            format!(
-                "{}",
-                request_json
-            )
-            .as_bytes(),
-        )
+        .write_all(format!("{}", request_json).as_bytes())
         .map_err(|e| format!("Failed to send request to database: {}", e))?;
 
     let mut reader = BufReader::new(&mut stream);
@@ -261,13 +274,15 @@ fn handle_init_request(
     request: DatabaseRequest,
     stream: &Arc<Mutex<TcpStream>>,
 ) -> Result<(), String> {
-    let reply = query_database(DATABASE_ADDR, &request).map(|db_reply| {
-        if db_reply.status == "success" {
-            DatabaseReply::init_reply(db_reply.checkpoint_id.unwrap())
-        } else {
-            DatabaseReply::error()
-        }
-    }).map_err(|e| format!("Database query failed: {}", e))?;
+    let reply = query_database(DATABASE_ADDR, &request)
+        .map(|db_reply| {
+            if db_reply.status == "success" {
+                DatabaseReply::init_reply(db_reply.checkpoint_id.unwrap())
+            } else {
+                DatabaseReply::error()
+            }
+        })
+        .map_err(|e| format!("Database query failed: {}", e))?;
     send_response(&reply, stream)
 }
 
@@ -297,7 +312,11 @@ fn handle_authenticate(
             }
         }
         CheckpointState::WaitForFingerprint => {
-            if authenticate_fingerprint(&request.worker_id, &request.worker_fingerprint, &request.checkpoint_id) {
+            if authenticate_fingerprint(
+                &request.worker_id,
+                &request.worker_fingerprint,
+                &request.checkpoint_id,
+            ) {
                 client.state = CheckpointState::AuthSuccessful;
                 CheckpointReply::auth_reply(CheckpointState::AuthSuccessful)
             } else {
@@ -323,13 +342,15 @@ fn handle_database_request(
     request: DatabaseRequest,
     stream: &Arc<Mutex<TcpStream>>,
 ) -> Result<(), String> {
-    let reply = query_database(DATABASE_ADDR, &request).map(|db_reply| {
-        if db_reply.status == "success" {
-            DatabaseReply::init_reply(request.checkpoint_id.unwrap())
-        } else {
-            DatabaseReply::error()
-        }
-    }).map_err(|e| format!("Database query failed: {}", e))?;
+    let reply = query_database(DATABASE_ADDR, &request)
+        .map(|db_reply| {
+            if db_reply.status == "success" {
+                DatabaseReply::init_reply(request.checkpoint_id.unwrap())
+            } else {
+                DatabaseReply::error()
+            }
+        })
+        .map_err(|e| format!("Database query failed: {}", e))?;
     send_response(&reply, stream)
 }
 
@@ -344,7 +365,9 @@ fn send_response<T: serde::Serialize>(
     let mut response_str = serde_json::to_string(response)
         .map_err(|e| format!("Failed to serialize response: {}", e))?;
     response_str.push('\0');
-    stream.lock().unwrap()
+    stream
+        .lock()
+        .unwrap()
         .write_all(response_str.as_bytes())
         .map_err(|e| format!("Failed to send response: {}", e))
 }
@@ -423,4 +446,34 @@ fn main() {
     }
 
     println!("Server terminated successfully");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_authenticate_rfid() {
+        let mock_tag: Option<u32> = Some(1);
+        let mock_id: Option<u32> = Some(1);
+        let result = authenticate_rfid(&mock_tag, &mock_id);
+        assert_eq!(result, true);
+        let mock_tag_mismatch_city: Option<u32> = Some(3);
+        let result_mismatch_city = authenticate_rfid(&mock_tag_mismatch_city, &mock_id);
+        assert_eq!(result_mismatch_city, false);
+        let mock_tag_mismatch_role: Option<u32> = Some(4);
+        let result_mismatch_role = authenticate_rfid(&mock_tag_mismatch_role, &mock_id);
+        assert_eq!(result_mismatch_role, false);
+    }
+    #[test]
+    fn test_authenticate_fingerprint() {
+        let mock_tag: Option<u32> = Some(1);
+        let mock_id: Option<u32> = Some(1);
+        let mock_hash = Some("this_is_a_hash".to_string());
+        let result = authenticate_fingerprint(&mock_tag, &mock_hash, &mock_id);
+        assert_eq!(result, true);
+        let mock_tag_mismatch: Option<u32> = Some(2);
+        let result_mismatch = authenticate_fingerprint(&mock_tag_mismatch, &mock_hash, &mock_id);
+        assert_eq!(result_mismatch, false);
+    }
 }

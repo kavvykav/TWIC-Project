@@ -1,10 +1,10 @@
 /****************
     IMPORTS
 ****************/
-use common::{CheckpointRequest, CheckpointReply, CheckpointState, Lcd, LCD_LINE_1, LCD_LINE_2};
-use std::net::TcpStream;
-use std::io::{Write, Read, BufRead, BufReader};
+use common::{CheckpointReply, CheckpointRequest, CheckpointState, Lcd, LCD_LINE_1, LCD_LINE_2};
 use std::env;
+use std::io::{BufRead, BufReader, Read, Write};
+use std::net::TcpStream;
 use std::thread;
 use std::time::Duration;
 
@@ -18,14 +18,12 @@ const RFID_PORT: &str = "/dev/ttyUSB0";
 const FINGERPRINT_PORT: &str = "/dev/ttyUSB1";
 const BAUD_RATE: u32 = 9600;
 
-
 /*
  * Name: send_and_receive
  * Function: sends an init message to have the checkpoint register in the centralized database,
  *           where the checkpoint is assigned an ID.
  */
 fn send_and_receive(stream: &mut TcpStream, init_req: &CheckpointRequest) -> CheckpointReply {
-
     // Serialize structure into a JSON
     let mut json = match serde_json::to_string(init_req) {
         Ok(json) => json,
@@ -50,18 +48,16 @@ fn send_and_receive(stream: &mut TcpStream, init_req: &CheckpointRequest) -> Che
     let mut buffer = Vec::new();
 
     let buffer_str: String = match reader.read_until(b'\0', &mut buffer) {
-        Ok(_) => {
-            match String::from_utf8(buffer.clone()) {
-                Ok(mut string) => {
-                    string.pop();
-                    string
-                }
-                Err(e) => {
-                    eprintln!("Failed to convert buffer to a string format: {}", e);
-                    String::new()
-                }
+        Ok(_) => match String::from_utf8(buffer.clone()) {
+            Ok(mut string) => {
+                string.pop();
+                string
             }
-        }
+            Err(e) => {
+                eprintln!("Failed to convert buffer to a string format: {}", e);
+                String::new()
+            }
+        },
         Err(e) => {
             eprintln!("Failed to read response from port server: {}", e);
             String::new()
@@ -97,7 +93,7 @@ fn init_lcd() -> Option<Lcd> {
     }
 }
 
-/* 
+/*
  * Name: main
  * Function: serves as the main checkpoint logic
  */
@@ -105,8 +101,10 @@ fn main() {
     // Parse command line arguments to get the port location and roles that this
     // checkpoint allows
     let args: Vec<String> = env::args().collect();
-    if args.len() <  4 {
-        eprintln!("Command line arguments need to be as follows: [function] [location] [allowed roles]");
+    if args.len() < 4 {
+        eprintln!(
+            "Command line arguments need to be as follows: [function] [location] [allowed roles]"
+        );
         return;
     }
 
@@ -154,7 +152,10 @@ fn main() {
         return;
     }
 
-    println!("Got an ID assigned by the central database: {}", init_reply.checkpoint_id.unwrap_or(0) );
+    println!(
+        "Got an ID assigned by the central database: {}",
+        init_reply.checkpoint_id.unwrap_or(0)
+    );
 
     // Store ID
     if let Some(checkpoint_id) = init_reply.checkpoint_id {
@@ -184,17 +185,22 @@ fn main() {
                     lcd.clear();
 
                     let worker_fingerprint = "dummy fingerprint".to_string();
-                    
+
                     // Construct enroll request
-                    let enroll_req = CheckpointRequest::enroll_req(checkpoint_id, worker_name, worker_fingerprint, location, role_id);
-        
+                    let enroll_req = CheckpointRequest::enroll_req(
+                        checkpoint_id,
+                        worker_name,
+                        worker_fingerprint,
+                        location,
+                        role_id,
+                    );
+
                     // Send and receive the response
                     let enroll_reply = send_and_receive(&mut stream, &enroll_req);
                     lcd.display_string("Enrolling...", LCD_LINE_1);
                     thread::sleep(Duration::from_secs(5));
                     lcd.clear();
 
-        
                     // Error check
                     if enroll_reply.status == "success".to_string() {
                         println!("User enrolled successfully!");
@@ -211,8 +217,6 @@ fn main() {
 
                         return;
                     }
-        
-        
                 }
                 "update" => {
                     println!("Please give your ID");
@@ -225,13 +229,18 @@ fn main() {
                     let worker_id = 1;
                     let new_role_id = 3;
                     let new_location = "Halifax".to_string();
-        
+
                     // Construct request structure
-                    let update_req = CheckpointRequest::update_req(checkpoint_id, worker_id, new_role_id, new_location);
-        
+                    let update_req = CheckpointRequest::update_req(
+                        checkpoint_id,
+                        worker_id,
+                        new_role_id,
+                        new_location,
+                    );
+
                     // Send request and receive response
                     let update_reply = send_and_receive(&mut stream, &update_req);
-        
+
                     // Error check
                     if update_reply.status == "success".to_string() {
                         println!("User updated successfully!");
@@ -248,7 +257,7 @@ fn main() {
                         return;
                     }
                 }
-        
+
                 "delete" => {
                     println!("Please give your ID");
 
@@ -258,13 +267,13 @@ fn main() {
                     lcd.clear();
 
                     let worker_id = 1;
-        
+
                     // Construct request structure
                     let delete_req = CheckpointRequest::delete_req(checkpoint_id, worker_id);
-        
+
                     // Send request and receive response
                     let delete_reply = send_and_receive(&mut stream, &delete_req);
-        
+
                     // Error check
                     if delete_reply.status == "success".to_string() {
                         println!("User deleted successfully!");
@@ -298,8 +307,10 @@ fn main() {
                         println!("Validating card...");
                         lcd.display_string("Validating", LCD_LINE_1);
 
-                        let rfid_auth_req = CheckpointRequest::rfid_auth_request(checkpoint_id, worker_id);
-                        let auth_reply: CheckpointReply = send_and_receive(&mut stream, &rfid_auth_req);
+                        let rfid_auth_req =
+                            CheckpointRequest::rfid_auth_request(checkpoint_id, worker_id);
+                        let auth_reply: CheckpointReply =
+                            send_and_receive(&mut stream, &rfid_auth_req);
                         if let Some(CheckpointState::AuthFailed) = auth_reply.auth_response {
                             println!("Authentication failed.");
                             lcd.clear();
@@ -316,13 +327,19 @@ fn main() {
                             lcd.clear();
                             lcd.display_string("Validating", LCD_LINE_1);
                         }
-                        
-        
+
                         // Collect fingerprint data
                         let worker_fingerprint = "dummy fingerprint".to_string();
-                        let fingerprint_auth_request= CheckpointRequest::fingerprint_auth_req(checkpoint_id, worker_id, worker_fingerprint);
-                        let fingerprint_auth_reply: CheckpointReply = send_and_receive(&mut stream, &fingerprint_auth_request);
-                        if let Some(CheckpointState::AuthFailed) = fingerprint_auth_reply.auth_response {
+                        let fingerprint_auth_request = CheckpointRequest::fingerprint_auth_req(
+                            checkpoint_id,
+                            worker_id,
+                            worker_fingerprint,
+                        );
+                        let fingerprint_auth_reply: CheckpointReply =
+                            send_and_receive(&mut stream, &fingerprint_auth_request);
+                        if let Some(CheckpointState::AuthFailed) =
+                            fingerprint_auth_reply.auth_response
+                        {
                             println!("Authentication failed.");
                             lcd.clear();
                             lcd.display_string("Access Denied", LCD_LINE_1);
@@ -335,7 +352,6 @@ fn main() {
                             lcd.display_string("Access Granted", LCD_LINE_1);
                             thread::sleep(Duration::from_secs(5));
                             lcd.clear();
-
                         }
                         // 5 second timeout between loop iterations
                         thread::sleep(Duration::new(5, 0));
@@ -348,6 +364,4 @@ fn main() {
             }
         }
     }
-
-    
 }
