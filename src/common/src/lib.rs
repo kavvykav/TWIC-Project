@@ -241,6 +241,21 @@ impl DatabaseReply {
         }
     }
 
+    pub fn update_success(allowed_locations: String, role_id: u32) -> Self {
+        DatabaseReply {
+            status: "success".to_string(),
+            checkpoint_id: None,
+            worker_id: None,
+            worker_fingerprint: None,
+            role_id: Some(role_id),
+            authorized_roles: None,
+            location: None,
+            auth_response: None,
+            allowed_locations: Some(allowed_locations),
+            worker_name: None,
+        }
+    }
+
     pub fn error() -> Self {
         DatabaseReply {
             status: "error".to_string(),

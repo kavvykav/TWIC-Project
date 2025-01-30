@@ -103,7 +103,7 @@ async fn handle_port_server_request(
             match checkpoint_data {
                 Ok((location, allowed_roles)) => {
                     // Worker details
-                    let worker_data: Result<(String, String, u32, String), _> = conn.query_row(
+                    let worker_data: Result<(String, String, String, u32), _> = conn.query_row(
                 "SELECT employees.fingerprint_hash, employees.allowed_locations, employees.name, roles.id \
                  FROM employees \
                  JOIN roles ON employees.role_id = roles.id \
@@ -113,7 +113,7 @@ async fn handle_port_server_request(
             );
 
                     match worker_data {
-                        Ok((worker_fingerprint, allowed_locations, role_id, name)) => {
+                        Ok((worker_fingerprint, allowed_locations, name, role_id)) => {
                             // Return the authentication reply
                             return DatabaseReply::auth_reply(
                                 req.checkpoint_id.unwrap_or_default(),
@@ -173,13 +173,16 @@ async fn handle_port_server_request(
 
         "UPDATE" => {
             let result = conn.execute(
-                "UPDATE employees SET role_id = ?1 WHERE id = ?2",
-                params![req.role_id, req.worker_id],
+                "UPDATE employees SET role_id = ?1, allowed_locations = ?2 WHERE id = ?3",
+                params![req.role_id, req.location, req.worker_id],
             );
             match result {
                 Ok(affected) => {
                     if affected > 0 {
-                        return DatabaseReply::success();
+                        return DatabaseReply::update_success(
+                            req.location.unwrap(),
+                            req.role_id.unwrap(),
+                        );
                     } else {
                         println!("Zero affected users");
                         return DatabaseReply::error();
