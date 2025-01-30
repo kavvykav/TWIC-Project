@@ -74,6 +74,26 @@ fn check_local_db(conn: &Connection, id: u32) -> Result<bool> {
 }
 
 /*
+ * Name: add_to_local_db
+ * Function: adds a worker to the port server's database.
+ */
+fn add_to_local_db(
+    conn: &Connection,
+    id: u32,
+    name: String,
+    fingerprint_hash: String,
+    role_id: i32,
+    allowed_locations: String,
+) -> Result<()> {
+    // Insert worker data into the employees table
+    conn.execute(
+        "INSERT INTO employees (id, name, fingerprint_hash, role_id, allowed_locations) VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![id, name, fingerprint_hash, role_id, allowed_locations],
+    )?;
+    Ok(())
+}
+
+/*
  * Name: set_stream_timeout
  * Function: Avoid a tcp connection hanging by setting timeouts for r/w
 */
@@ -258,8 +278,34 @@ fn authenticate_fingerprint(
                     return false;
                 }
 
-                return Some(rfid) == response.worker_id.as_ref()
+                let auth = Some(rfid) == response.worker_id.as_ref()
                     && Some(fingerprint) == response.worker_fingerprint.as_ref();
+
+                // This is the first time authenticating a worker at this port, so
+                // we are adding it to the local database.
+                if auth == true {
+                    match add_to_local_db(
+                        conn,
+                        response.worker_id.unwrap(),
+                        response.worker_name.unwrap(),
+                        response.worker_fingerprint.unwrap(),
+                        response.role_id.unwrap() as i32,
+                        response.allowed_locations.unwrap(),
+                    ) {
+                        Ok(_) => {
+                            return true;
+                        }
+                        Err(e) => {
+                            eprintln!(
+                                "An error occured with adding the user to the database : {}",
+                                e
+                            );
+                            return true;
+                        }
+                    }
+                } else {
+                    return false;
+                }
             }
             Err(e) => {
                 eprintln!("Error querying database for fingerprint hash: {}", e);

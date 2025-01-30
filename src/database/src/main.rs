@@ -85,8 +85,15 @@ async fn handle_port_server_request(
                 }
             }
         }
+
         "AUTHENTICATE" => {
-            println!("Checkpoint id is: {}", req.checkpoint_id.unwrap());
+            // Checkpoint details
+            println!(
+                "Checkpoint id is: {}",
+                req.checkpoint_id.unwrap_or_default()
+            );
+
+            // Fetch checkpoint data
             let checkpoint_data: Result<(String, String), _> = conn.query_row(
                 "SELECT location, allowed_roles FROM checkpoints WHERE id = ?1",
                 params![req.checkpoint_id],
@@ -95,40 +102,44 @@ async fn handle_port_server_request(
 
             match checkpoint_data {
                 Ok((location, allowed_roles)) => {
-                    let worker_data: Result<(String, String, u32), _> = conn.query_row(
-                        "SELECT employees.fingerprint_hash, employees.allowed_locations, roles.id \
-                FROM employees \
-                JOIN roles ON employees.role_id = roles.id \
-                WHERE employees.id = ?1",
-                        params![req.worker_id],
-                        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-                    );
+                    // Worker details
+                    let worker_data: Result<(String, String, u32, String), _> = conn.query_row(
+                "SELECT employees.fingerprint_hash, employees.allowed_locations, employees.name, roles.id \
+                 FROM employees \
+                 JOIN roles ON employees.role_id = roles.id \
+                 WHERE employees.id = ?1",
+                params![req.worker_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            );
 
                     match worker_data {
-                        Ok((worker_fingerprint, allowed_locations, role_id)) => {
+                        Ok((worker_fingerprint, allowed_locations, role_id, name)) => {
+                            // Return the authentication reply
                             return DatabaseReply::auth_reply(
-                                req.checkpoint_id.unwrap(),
-                                req.worker_id.unwrap(),
+                                req.checkpoint_id.unwrap_or_default(),
+                                req.worker_id.unwrap_or_default(),
                                 worker_fingerprint,
                                 role_id,
                                 allowed_roles,
                                 location,
                                 allowed_locations,
+                                name,
                             );
                         }
                         Err(e) => {
+                            // Error fetching worker details
                             eprintln!("Error fetching worker details: {}", e);
                             return DatabaseReply::error();
                         }
                     }
                 }
                 Err(e) => {
+                    // Error fetching checkpoint details
                     eprintln!("Error fetching checkpoint details: {}", e);
                     return DatabaseReply::error();
                 }
             }
         }
-
         "ENROLL" => {
             let exists: bool = conn
                 .query_row(
