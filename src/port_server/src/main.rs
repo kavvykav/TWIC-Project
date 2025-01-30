@@ -41,7 +41,7 @@ fn initialize_database() -> Result<Connection> {
 
     conn.execute(
         "CREATE TABLE IF NOT EXISTS employees (
-            id INTEGER PRIMARY KEY,
+            id VARCHAR(32) PRIMARY KEY,
             name TEXT NOT NULL,
             fingerprint_hash TEXT NOT NULL,
             role_id INTEGER NOT NULL,
@@ -571,36 +571,86 @@ fn handle_database_request(
     request: DatabaseRequest,
     stream: &Arc<Mutex<TcpStream>>,
 ) -> Result<(), String> {
-    let reply = query_database(DATABASE_ADDR, &request)
-        .map(|db_reply| {
-            if db_reply.status == "success" {
-                // Update local database to reflect that of the central database when successful
-                match request.command.as_str() {
-                    "DELETE" => match delete_from_local_db(conn, request.worker_id.unwrap()) {
-                        Ok(_) => DatabaseReply::init_reply(request.checkpoint_id.unwrap()),
-                        Err(_) => DatabaseReply::error(),
-                    },
-                    "UPDATE" => {
-                        match update_worker_entry(
-                            conn,
-                            request.worker_id.unwrap(),
-                            db_reply.allowed_locations.unwrap(),
-                            db_reply.role_id.unwrap() as i32,
-                        ) {
-                            Ok(_) => DatabaseReply::init_reply(request.checkpoint_id.unwrap()),
-                            Err(_) => DatabaseReply::error(),
+    // Query the central database
+    let db_reply = query_database(DATABASE_ADDR, &request)
+        .map_err(|e| format!("Database query failed: {}", e))?;
+
+    // Process the reply based on the command
+    let reply = if db_reply.status == "success" {
+        match request.command.as_str() {
+            "DELETE" => {
+                // Safely unwrap worker_id or return an error
+                let worker_id = request
+                    .worker_id
+                    .ok_or("Worker ID is missing in the request")?;
+
+                // Check if the worker exists in the local database
+                if check_local_db(conn, worker_id).map_err(|e| format!("Database error: {}", e))? {
+                    // Delete the worker from the local database
+                    match delete_from_local_db(conn, worker_id) {
+                        Ok(_) => {
+                            DatabaseReply::init_reply(request.checkpoint_id.unwrap_or_default())
+                        }
+                        Err(e) => {
+                            eprintln!("Failed to delete worker: {}", e);
+                            DatabaseReply::error()
                         }
                     }
-                    _ => DatabaseReply::init_reply(request.checkpoint_id.unwrap()),
+                } else {
+                    // Worker not found in the local database
+                    eprintln!(
+                        "Worker with ID {} not found in the local database",
+                        worker_id
+                    );
+                    DatabaseReply::error()
                 }
-            } else {
-                DatabaseReply::error()
             }
-        })
-        .map_err(|e| format!("Database query failed: {}", e))?;
+            "UPDATE" => {
+                // Safely unwrap worker_id, role_id, and allowed_locations or return an error
+                let worker_id = request
+                    .worker_id
+                    .ok_or("Worker ID is missing in the request")?;
+                request.role_id.ok_or("Role ID is missing in the request")?;
+                request
+                    .location
+                    .ok_or("Allowed locations are missing in the request")?;
+
+                // Check if the worker exists in the local database
+                if check_local_db(conn, worker_id).map_err(|e| format!("Database error: {}", e))? {
+                    // Update the worker's role and allowed locations
+                    match update_worker_entry(
+                        conn,
+                        request.worker_id.unwrap(),
+                        db_reply.allowed_locations.unwrap(),
+                        db_reply.role_id.unwrap() as i32,
+                    ) {
+                        Ok(_) => {
+                            DatabaseReply::init_reply(request.checkpoint_id.unwrap_or_default())
+                        }
+                        Err(e) => {
+                            eprintln!("Failed to delete worker: {}", e);
+                            DatabaseReply::error()
+                        }
+                    }
+                } else {
+                    // Worker not found in the local database
+                    eprintln!(
+                        "Worker with ID {} not found in the local database",
+                        worker_id
+                    );
+                    DatabaseReply::error()
+                }
+            }
+            _ => DatabaseReply::init_reply(request.checkpoint_id.unwrap_or_default()),
+        }
+    } else {
+        // Central database query failed
+        DatabaseReply::error()
+    };
+
+    // Send the response back to the client
     send_response(&reply, stream)
 }
-
 /*
  * Name: send_response
  * Function: sends the result of the request back to the corresponding checkpoint.
