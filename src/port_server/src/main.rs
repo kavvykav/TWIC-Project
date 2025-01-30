@@ -6,7 +6,7 @@ use common::{
     SERVER_ADDR,
 };
 use ctrlc;
-use rusqlite::{params, Connection, Error, Result};
+use rusqlite::{params, Connection, Result};
 use std::{
     collections::HashMap,
     io::{BufRead, BufReader, Write},
@@ -84,11 +84,38 @@ fn add_to_local_db(
     fingerprint_hash: String,
     role_id: i32,
     allowed_locations: String,
-) -> Result<()> {
+) -> Result<(), rusqlite::Error> {
     // Insert worker data into the employees table
     conn.execute(
         "INSERT INTO employees (id, name, fingerprint_hash, role_id, allowed_locations) VALUES (?1, ?2, ?3, ?4, ?5)",
         params![id, name, fingerprint_hash, role_id, allowed_locations],
+    )?;
+    Ok(())
+}
+
+/*
+ * Name: delete_from_local_db
+ * Function: deletes a worker from the port server's database.
+ */
+fn delete_from_local_db(conn: &Connection, id: u32) -> Result<(), rusqlite::Error> {
+    // Delete from employees table
+    conn.execute("DELETE FROM employees WHERE id = ?1", params![id])?;
+    Ok(())
+}
+
+/*
+ * Name: update_worker_entry
+ * Function: updates a worker's information in the local database.
+ */
+fn update_worker_entry(
+    conn: &Connection,
+    id: u32,
+    locations: String,
+    role: i32,
+) -> Result<(), rusqlite::Error> {
+    conn.execute(
+        "UPDATE employees SET role_id = ?1, allowed_locations = ?2 WHERE id = ?3",
+        params![id, locations, role],
     )?;
     Ok(())
 }
@@ -436,9 +463,18 @@ fn parse_command_from_request(
     match request.command.as_str() {
         "INIT_REQUEST" => handle_init_request(conn, request, stream),
         "AUTHENTICATE" => handle_authenticate(conn, request, stream, client_id, clients),
-        "ENROLL" => handle_database_request(request, stream),
-        "UPDATE" => handle_database_request(request, stream),
-        "DELETE" => handle_database_request(request, stream),
+        "ENROLL" => {
+            let conn = conn.lock().unwrap(); // Lock the Mutex to get &Connection
+            handle_database_request(&conn, request, stream)
+        }
+        "UPDATE" => {
+            let conn = conn.lock().unwrap(); // Lock the Mutex to get &Connection
+            handle_database_request(&conn, request, stream)
+        }
+        "DELETE" => {
+            let conn = conn.lock().unwrap(); // Lock the Mutex to get &Connection
+            handle_database_request(&conn, request, stream)
+        }
         _ => Err("Unknown command".into()),
     }
 }
@@ -531,13 +567,32 @@ fn handle_authenticate(
  * Function: handles Update, Enroll and Delete requests from the centralized database.
  */
 fn handle_database_request(
+    conn: &Connection,
     request: DatabaseRequest,
     stream: &Arc<Mutex<TcpStream>>,
 ) -> Result<(), String> {
     let reply = query_database(DATABASE_ADDR, &request)
         .map(|db_reply| {
             if db_reply.status == "success" {
-                DatabaseReply::init_reply(request.checkpoint_id.unwrap())
+                // Update local database to reflect that of the central database when successful
+                match request.command.as_str() {
+                    "DELETE" => match delete_from_local_db(conn, request.worker_id.unwrap()) {
+                        Ok(_) => DatabaseReply::init_reply(request.checkpoint_id.unwrap()),
+                        Err(_) => DatabaseReply::error(),
+                    },
+                    "UPDATE" => {
+                        match update_worker_entry(
+                            conn,
+                            request.worker_id.unwrap(),
+                            db_reply.allowed_locations.unwrap(),
+                            db_reply.role_id.unwrap() as i32,
+                        ) {
+                            Ok(_) => DatabaseReply::init_reply(request.checkpoint_id.unwrap()),
+                            Err(_) => DatabaseReply::error(),
+                        }
+                    }
+                    _ => DatabaseReply::init_reply(request.checkpoint_id.unwrap()),
+                }
             } else {
                 DatabaseReply::error()
             }
