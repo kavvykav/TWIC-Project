@@ -1,11 +1,11 @@
 /**********************************
             IMPORTS
 **********************************/
-use serde::{Deserialize, Serialize};
-use std::sync::{Arc, Mutex};
-use std::net::TcpStream;
-use std::thread;
 use rppal::i2c::I2c;
+use serde::{Deserialize, Serialize};
+use std::net::TcpStream;
+use std::sync::{Arc, Mutex};
+use std::thread;
 use std::time::Duration;
 
 /*************************************
@@ -34,7 +34,7 @@ impl Role {
     CHECKPOINT <--> PORT SERVER
 ****************************************/
 
-#[derive(Deserialize, Serialize, Clone)]
+#[derive(Deserialize, Serialize, Clone, Debug, Eq, PartialEq)]
 pub enum CheckpointState {
     WaitForRfid,
     WaitForFingerprint,
@@ -78,8 +78,7 @@ impl CheckpointRequest {
         };
     }
 
-    pub fn rfid_auth_request(checkpoint_id: u32,
-                      worker_id: u32) -> CheckpointRequest {
+    pub fn rfid_auth_request(checkpoint_id: u32, worker_id: u32) -> CheckpointRequest {
         return CheckpointRequest {
             command: "AUTHENTICATE".to_string(),
             checkpoint_id: Some(checkpoint_id),
@@ -92,10 +91,11 @@ impl CheckpointRequest {
         };
     }
 
-    pub fn fingerprint_auth_req(checkpoint_id: u32,
-                                worker_id: u32,
-                                worker_fingerprint: String) -> CheckpointRequest {
-        
+    pub fn fingerprint_auth_req(
+        checkpoint_id: u32,
+        worker_id: u32,
+        worker_fingerprint: String,
+    ) -> CheckpointRequest {
         return CheckpointRequest {
             command: "AUTHENTICATE".to_string(),
             checkpoint_id: Some(checkpoint_id),
@@ -108,11 +108,13 @@ impl CheckpointRequest {
         };
     }
 
-    pub fn enroll_req(checkpoint_id: u32,
-                      worker_name: String,
-                      worker_fingerprint: String,
-                      location: String,
-                      role_id: u32) -> CheckpointRequest {
+    pub fn enroll_req(
+        checkpoint_id: u32,
+        worker_name: String,
+        worker_fingerprint: String,
+        location: String,
+        role_id: u32,
+    ) -> CheckpointRequest {
         return CheckpointRequest {
             command: "ENROLL".to_string(),
             checkpoint_id: Some(checkpoint_id),
@@ -125,10 +127,12 @@ impl CheckpointRequest {
         };
     }
 
-    pub fn update_req(checkpoint_id: u32,
-                      worker_id: u32,
-                      new_role_id: u32,
-                      new_location: String) -> CheckpointRequest {
+    pub fn update_req(
+        checkpoint_id: u32,
+        worker_id: u32,
+        new_role_id: u32,
+        new_location: String,
+    ) -> CheckpointRequest {
         return CheckpointRequest {
             command: "UPDATE".to_string(),
             checkpoint_id: Some(checkpoint_id),
@@ -140,9 +144,8 @@ impl CheckpointRequest {
             worker_name: None,
         };
     }
-    
-    pub fn delete_req(checkpoint_id: u32,
-                      worker_id: u32) -> CheckpointRequest {
+
+    pub fn delete_req(checkpoint_id: u32, worker_id: u32) -> CheckpointRequest {
         return CheckpointRequest {
             command: "DELETE".to_string(),
             checkpoint_id: Some(checkpoint_id),
@@ -155,7 +158,6 @@ impl CheckpointRequest {
         };
     }
 }
-    
 
 impl CheckpointReply {
     pub fn error() -> CheckpointReply {
@@ -168,7 +170,7 @@ impl CheckpointReply {
             auth_response: None,
         };
     }
-    pub fn auth_reply(state: CheckpointState) -> Self{
+    pub fn auth_reply(state: CheckpointState) -> Self {
         return CheckpointReply {
             status: "success".to_string(),
             checkpoint_id: None,
@@ -179,7 +181,6 @@ impl CheckpointReply {
         };
     }
 }
-
 
 /*********************************************
     PORT SERVER <--> CENTRAL DATABASE
@@ -221,6 +222,7 @@ pub struct DatabaseReply {
     pub location: Option<String>,
     pub auth_response: Option<CheckpointState>,
     pub allowed_locations: Option<String>,
+    pub worker_name: Option<String>,
 }
 
 impl DatabaseReply {
@@ -235,6 +237,22 @@ impl DatabaseReply {
             location: None,
             auth_response: None,
             allowed_locations: None,
+            worker_name: None,
+        }
+    }
+
+    pub fn update_success(allowed_locations: String, role_id: u32) -> Self {
+        DatabaseReply {
+            status: "success".to_string(),
+            checkpoint_id: None,
+            worker_id: None,
+            worker_fingerprint: None,
+            role_id: Some(role_id),
+            authorized_roles: None,
+            location: None,
+            auth_response: None,
+            allowed_locations: Some(allowed_locations),
+            worker_name: None,
         }
     }
 
@@ -249,16 +267,19 @@ impl DatabaseReply {
             location: None,
             auth_response: None,
             allowed_locations: None,
+            worker_name: None,
         }
     }
-    pub fn auth_reply(checkpoint_id: u32,
-                      worker_id: u32,
-                      worker_fingerprint: String,
-                      role_id: u32,
-                      authorized_roles: String,
-                      location: String,
-                      allowed_locations: String,
-                      ) -> Self {
+    pub fn auth_reply(
+        checkpoint_id: u32,
+        worker_id: u32,
+        worker_fingerprint: String,
+        role_id: u32,
+        authorized_roles: String,
+        location: String,
+        allowed_locations: String,
+        worker_name: String,
+    ) -> Self {
         DatabaseReply {
             status: "success".to_string(),
             checkpoint_id: Some(checkpoint_id),
@@ -269,6 +290,7 @@ impl DatabaseReply {
             location: Some(location),
             auth_response: None,
             allowed_locations: Some(allowed_locations),
+            worker_name: Some(worker_name),
         }
     }
     pub fn init_reply(checkpoint_id: u32) -> Self {
@@ -282,6 +304,7 @@ impl DatabaseReply {
             location: None,
             auth_response: None,
             allowed_locations: None,
+            worker_name: None,
         }
     }
 }

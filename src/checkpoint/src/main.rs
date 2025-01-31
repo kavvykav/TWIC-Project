@@ -72,8 +72,7 @@ fn send_and_receive(stream: &mut TcpStream, init_req: &CheckpointRequest) -> Che
             return CheckpointReply::error();
         }
     };
-
-    return response;
+    response
 }
 
 /*
@@ -115,7 +114,7 @@ fn main() {
     let authorized_roles = args[3..].to_vec().join(",");
 
     // Initialize LCD
-    let mut lcd = match init_lcd() {
+    let lcd = match init_lcd() {
         Some(lcd) => lcd,
         None => return, // Exit if LCD initialization fails
     };
@@ -214,7 +213,6 @@ fn main() {
                         lcd.display_string("Error!", LCD_LINE_1);
                         thread::sleep(Duration::from_secs(5));
                         lcd.clear();
-
                         return;
                     }
                 }

@@ -276,6 +276,7 @@ dependencies = [
  "common",
  "ctrlc",
  "rand",
+ "rusqlite",
  "serde",
  "serde_json",
 ]
