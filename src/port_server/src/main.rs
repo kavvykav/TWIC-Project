@@ -41,7 +41,7 @@ fn initialize_database() -> Result<Connection> {
 
     conn.execute(
         "CREATE TABLE IF NOT EXISTS employees (
-            id VARCHAR(32) PRIMARY KEY,
+            id INTEGER PRIMARY KEY,
             name TEXT NOT NULL,
             fingerprint_hash TEXT NOT NULL,
             role_id INTEGER NOT NULL,
