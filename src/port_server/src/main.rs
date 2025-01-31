@@ -115,7 +115,7 @@ fn update_worker_entry(
 ) -> Result<(), rusqlite::Error> {
     conn.execute(
         "UPDATE employees SET role_id = ?1, allowed_locations = ?2 WHERE id = ?3",
-        params![id, locations, role],
+        params![role, locations, id],
     )?;
     Ok(())
 }
@@ -628,7 +628,7 @@ fn handle_database_request(
                             DatabaseReply::init_reply(request.checkpoint_id.unwrap_or_default())
                         }
                         Err(e) => {
-                            eprintln!("Failed to delete worker: {}", e);
+                            eprintln!("Failed to update worker entry: {}", e);
                             DatabaseReply::error()
                         }
                     }
@@ -747,10 +747,11 @@ fn main() -> Result<(), rusqlite::Error> {
     println!("Server terminated successfully");
     Ok(())
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rusqlite::params;
+    use std::sync::{Arc, Mutex};
 
     // Helper function to initialize the database with test data
     fn setup_test_database() -> Connection {
@@ -818,6 +819,103 @@ mod tests {
     }
 
     #[test]
+    fn test_initialize_database() {
+        let conn = initialize_database().expect("Failed to initialize database");
+
+        // Check if tables are created
+        let roles_table_exists: bool = conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='roles')",
+                [],
+                |row| row.get(0),
+            )
+            .expect("Failed to query roles table existence");
+        assert!(roles_table_exists);
+
+        let employees_table_exists: bool = conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='employees')",
+                [],
+                |row| row.get(0),
+            )
+            .expect("Failed to query employees table existence");
+        assert!(employees_table_exists);
+
+        let checkpoints_table_exists: bool = conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='checkpoints')",
+                [],
+                |row| row.get(0),
+            )
+            .expect("Failed to query checkpoints table existence");
+        assert!(checkpoints_table_exists);
+    }
+
+    #[test]
+    fn test_check_local_db() {
+        let conn = setup_test_database();
+
+        // Test existing employee
+        let exists = check_local_db(&conn, 1).expect("Failed to check local database");
+        assert!(exists);
+
+        // Test non-existing employee
+        let exists = check_local_db(&conn, 999).expect("Failed to check local database");
+        assert!(!exists);
+    }
+
+    #[test]
+    fn test_add_to_local_db() {
+        let conn = setup_test_database();
+
+        // Add a new employee
+        add_to_local_db(
+            &conn,
+            3,
+            "New Employee".to_string(),
+            "hash3".to_string(),
+            2,
+            "Location2".to_string(),
+        )
+        .expect("Failed to add to local database");
+
+        // Check if the employee was added
+        let exists = check_local_db(&conn, 3).expect("Failed to check local database");
+        assert!(exists);
+    }
+
+    #[test]
+    fn test_delete_from_local_db() {
+        let conn = setup_test_database();
+
+        // Delete an existing employee
+        delete_from_local_db(&conn, 1).expect("Failed to delete from local database");
+
+        // Check if the employee was deleted
+        let exists = check_local_db(&conn, 1).expect("Failed to check local database");
+        assert!(!exists);
+    }
+
+    #[test]
+    fn test_update_worker_entry() {
+        let conn = setup_test_database();
+
+        // Update an existing employee
+        update_worker_entry(&conn, 1, "Location3".to_string(), 2)
+            .expect("Failed to update worker entry");
+
+        // Check if the employee was updated
+        let mut stmt = conn
+            .prepare("SELECT allowed_locations, role_id FROM employees WHERE id = ?")
+            .expect("Failed to prepare statement");
+        let (locations, role_id): (String, i32) = stmt
+            .query_row(params![1], |row| Ok((row.get(0)?, row.get(1)?)))
+            .expect("Failed to query updated employee");
+        assert_eq!(locations, "Location3");
+        assert_eq!(role_id, 2);
+    }
+
+    #[test]
     fn test_authenticate_rfid() {
         let conn = setup_test_database();
 
@@ -825,18 +923,18 @@ mod tests {
         let mock_tag: Option<u32> = Some(1);
         let mock_checkpoint: Option<u32> = Some(1);
         let result = authenticate_rfid(&conn, &mock_tag, &mock_checkpoint);
-        assert_eq!(result, true);
+        assert!(result);
 
         // Test invalid RFID (wrong role for checkpoint)
         let mock_tag_mismatch_role: Option<u32> = Some(2);
         let result_mismatch_role =
             authenticate_rfid(&conn, &mock_tag_mismatch_role, &mock_checkpoint);
-        assert_eq!(result_mismatch_role, false);
+        assert!(!result_mismatch_role);
 
         // Test invalid RFID (non-existent)
         let mock_tag_invalid: Option<u32> = Some(999);
         let result_invalid = authenticate_rfid(&conn, &mock_tag_invalid, &mock_checkpoint);
-        assert_eq!(result_invalid, false);
+        assert!(!result_invalid);
     }
 
     #[test]
@@ -849,7 +947,7 @@ mod tests {
         let mock_checkpoint: Option<u32> = Some(1);
         let result =
             authenticate_fingerprint(&conn, &mock_tag, &mock_fingerprint, &mock_checkpoint);
-        assert_eq!(result, true);
+        assert!(result);
 
         // Test invalid fingerprint
         let mock_fingerprint_invalid: Option<String> = Some("wrong_hash".to_string());
@@ -859,7 +957,7 @@ mod tests {
             &mock_fingerprint_invalid,
             &mock_checkpoint,
         );
-        assert_eq!(result_invalid, false);
+        assert!(!result_invalid);
 
         // Test invalid RFID
         let mock_tag_invalid: Option<u32> = Some(999);
@@ -869,6 +967,6 @@ mod tests {
             &mock_fingerprint,
             &mock_checkpoint,
         );
-        assert_eq!(result_invalid_rfid, false);
+        assert!(!result_invalid_rfid);
     }
 }

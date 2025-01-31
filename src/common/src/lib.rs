@@ -34,7 +34,7 @@ impl Role {
     CHECKPOINT <--> PORT SERVER
 ****************************************/
 
-#[derive(Deserialize, Serialize, Clone)]
+#[derive(Deserialize, Serialize, Clone, Debug, Eq, PartialEq)]
 pub enum CheckpointState {
     WaitForRfid,
     WaitForFingerprint,
