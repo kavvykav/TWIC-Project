@@ -79,8 +79,8 @@ impl App {
     }
 
     /// Draws the UI.
-    /// A fixed-height header is rendered at the top, and the menu (or submenu)
-    /// occupies the rest of the screen.
+    /// A header is rendered at the top with enough height to show 3 lines of text.
+    /// The menu (or submenu) occupies the rest of the screen.
     fn draw(&mut self, frame: &mut Frame) {
         // Header text varies depending on the current mode.
         let header_text = match self.mode {
@@ -96,11 +96,11 @@ impl App {
             }
         };
 
-        // Create a layout with a fixed header (3 lines) and a menu area filling the rest.
+        // Increase the header height to 5 to allow the block border to render 3 lines of text.
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .margin(1)
-            .constraints([Constraint::Length(3), Constraint::Min(0)].as_ref())
+            .constraints([Constraint::Length(5), Constraint::Min(0)].as_ref())
             .split(frame.area());
 
         let header_paragraph = Paragraph::new(header_text)
@@ -124,7 +124,6 @@ impl App {
                         ListItem::new(item).style(style)
                     })
                     .collect();
-                // The title now indicates the quit keys.
                 let main_menu = List::new(main_menu_items)
                     .block(Block::bordered().title("Main Menu (q, Esc, Ctrl+C: quit)"));
                 frame.render_widget(main_menu, chunks[1]);
@@ -146,7 +145,6 @@ impl App {
                         ListItem::new(item).style(style)
                     })
                     .collect();
-                // The title now indicates that Esc goes back and q/Ctrl+C quit.
                 let submenu_widget = List::new(submenu_items)
                     .block(Block::bordered().title("Submenu (Esc: back, q, Ctrl+C: quit)"));
                 frame.render_widget(submenu_widget, chunks[1]);
