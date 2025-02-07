@@ -16,6 +16,11 @@ use std::{
     thread,
     time::Duration,
 };
+use std::fs::OpenOptions;
+use std::io::Write;
+use chrono::Local;
+
+const LOG_FILE: &str = "auth.log";
 
 /**
  * Name: initialize_database
@@ -156,12 +161,18 @@ fn authenticate_rfid(
                  WHERE employees.id = ?",
             ) {
                 Ok(stmt) => stmt,
-                Err(_) => return false,
+                Err(_) => {
+                    log_event(*rfid_tag, *checkpoint_id, "RFID", "Failed");
+                    return false;
+                }
             };
 
             let role_name: String = match stmt.query_row([rfid], |row| row.get(0)) {
                 Ok(role) => role,
-                Err(_) => return false,
+                Err(_) => {
+                    log_event(*rfid_tag, *checkpoint_id, "RFID", "Failed");
+                    return false;
+                }
             };
 
             let mut stmt = match conn.prepare(
@@ -170,12 +181,18 @@ fn authenticate_rfid(
                  WHERE id = ?",
             ) {
                 Ok(stmt) => stmt,
-                Err(_) => return false,
+                Err(_) => {
+                    log_event(*rfid_tag, *checkpoint_id, "RFID", "Failed");
+                    return false;
+                }
             };
 
             let allowed_roles: String = match stmt.query_row([checkpoint], |row| row.get(0)) {
                 Ok(roles) => roles,
-                Err(_) => return false,
+                Err(_) => {
+                    log_event(*rfid_tag, *checkpoint_id, "RFID", "Failed");
+                    return false;
+                }
             };
 
             let allowed_roles_vec: Vec<String> = allowed_roles
@@ -184,8 +201,10 @@ fn authenticate_rfid(
                 .collect();
 
             if !allowed_roles_vec.contains(&role_name) {
+                log_event(*rfid_tag, *checkpoint_id, "RFID", "Failed");
                 return false;
             } else {
+                log_event(*rfid_tag, *checkpoint_id, "RFID", "Successful");
                 return true;
             }
         }
@@ -210,6 +229,7 @@ fn authenticate_rfid(
                 println!("Response status: {}", response.status);
 
                 if response.status != "success".to_string() {
+                    log_event(Some(rfid), Some(checkpoint), "RFID", "Failed");
                     return false;
                 }
 
@@ -233,19 +253,30 @@ fn authenticate_rfid(
                     .map(|loc| loc.trim().to_string())
                     .collect();
 
-                return Some(rfid) == response.worker_id.as_ref()
+                let auth_successful = Some(rfid) == response.worker_id.as_ref()
                     && authorized_roles.contains(&role_str)
                     && allowed_locations_vec.contains(&response.location.unwrap());
+
+                if auth_successful {
+                    log_event(Some(rfid), Some(checkpoint), "RFID", "Successful");
+                } else {
+                    log_event(Some(rfid), Some(checkpoint), "RFID", "Failed");
+                }
+
+                return auth_successful;
             }
             Err(e) => {
                 eprintln!("Error querying database for RFID: {:?}", e);
+                log_event(Some(*rfid_tag.unwrap()), Some(*checkpoint_id.unwrap()), "RFID", "Failed");
                 return false;
             }
         }
     } else {
+        log_event(*rfid_tag, *checkpoint_id, "RFID", "Failed");
         return false;
     }
 }
+
 
 /*
  * Name: authenticate_fingerprint
@@ -268,17 +299,29 @@ fn authenticate_fingerprint(
                  WHERE employees.id = ?",
             ) {
                 Ok(stmt) => stmt,
-                Err(_) => return false,
+                Err(_) => {
+                    log_event(Some(*rfid), Some(*checkpoint), "Fingerprint", "Failed");
+                    return false;
+                }
             };
 
-            let fingerprint_hash: String = match stmt.query_row([rfid], |row| row.get(0)) {
+            let stored_fingerprint: String = match stmt.query_row([rfid], |row| row.get(0)) {
                 Ok(fp) => fp,
-                Err(_) => return false,
+                Err(_) => {
+                    log_event(Some(*rfid), Some(*checkpoint), "Fingerprint", "Failed");
+                    return false;
+                }
             };
 
-            // Check if the hashes are equal
-            return fingerprint == &fingerprint_hash;
+            if fingerprint == &stored_fingerprint {
+                log_event(Some(*rfid), Some(*checkpoint), "Fingerprint", "Successful");
+                return true;
+            } else {
+                log_event(Some(*rfid), Some(*checkpoint), "Fingerprint", "Failed");
+                return false;
+            }
         }
+
         let request = DatabaseRequest {
             command: "AUTHENTICATE".to_string(),
             checkpoint_id: Some(checkpoint.clone()),
@@ -302,15 +345,14 @@ fn authenticate_fingerprint(
                 );
 
                 if response.status != "success".to_string() {
+                    log_event(Some(*rfid), Some(*checkpoint), "Fingerprint", "Failed");
                     return false;
                 }
 
                 let auth = Some(rfid) == response.worker_id.as_ref()
                     && Some(fingerprint) == response.worker_fingerprint.as_ref();
 
-                // This is the first time authenticating a worker at this port, so
-                // we are adding it to the local database.
-                if auth == true {
+                if auth {
                     match add_to_local_db(
                         conn,
                         response.worker_id.unwrap(),
@@ -320,29 +362,35 @@ fn authenticate_fingerprint(
                         response.allowed_locations.unwrap(),
                     ) {
                         Ok(_) => {
+                            log_event(Some(*rfid), Some(*checkpoint), "Fingerprint", "Successful");
                             return true;
                         }
                         Err(e) => {
                             eprintln!(
-                                "An error occured with adding the user to the database : {}",
+                                "An error occurred with adding the user to the database : {}",
                                 e
                             );
+                            log_event(Some(*rfid), Some(*checkpoint), "Fingerprint", "Failed");
                             return true;
                         }
                     }
                 } else {
+                    log_event(Some(*rfid), Some(*checkpoint), "Fingerprint", "Failed");
                     return false;
                 }
             }
             Err(e) => {
                 eprintln!("Error querying database for fingerprint hash: {}", e);
+                log_event(Some(*rfid).copied(), Some(*checkpoint).copied(), "Fingerprint", "Failed");
                 return false;
             }
         }
     } else {
+        log_event(*rfid_tag.copied(), *checkpoint_id.copied(), "Fingerprint", "Failed");
         return false;
     }
 }
+
 
 /*
  * Name: query_database
@@ -667,6 +715,53 @@ fn send_response<T: serde::Serialize>(
         .unwrap()
         .write_all(response_str.as_bytes())
         .map_err(|e| format!("Failed to send response: {}", e))
+}
+
+// Enum for different log events
+#[derive(Debug)]
+enum LogEvent {
+    AuthSuccess { worker_id: u32, checkpoint_id: u32 },
+    AuthFailed { worker_id: u32, checkpoint_id: u32, reason: String },
+    RoleChange { admin_id: u32, worker_id: u32, action: String, new_role: String },
+    AdminAuth { admin1_id: u32, admin2_id: u32, checkpoint_id: u32 },
+}
+
+// Helper function to get a readable timestamp
+fn get_timestamp() -> String {
+    let duration = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
+    let seconds = duration.as_secs();
+    let millis = duration.subsec_millis();
+    format!("[{}.{:03}]", seconds, millis)
+}
+
+// Writes log entry to `auth.log`
+fn log_event(event: LogEvent) {
+    let log_message = match event {
+        LogEvent::AuthSuccess { worker_id, checkpoint_id } => {
+            format!("{} AUTH_SUCCESS | worker_id={} | checkpoint_id={}", get_timestamp(), worker_id, checkpoint_id)
+        }
+        LogEvent::AuthFailed { worker_id, checkpoint_id, reason } => {
+            format!("{} AUTH_FAILED | worker_id={} | checkpoint_id={} | reason={}", get_timestamp(), worker_id, checkpoint_id, reason)
+        }
+        LogEvent::RoleChange { admin_id, worker_id, action, new_role } => {
+            format!("{} ROLE_CHANGE | admin_id={} | worker_id={} | action={} | new_role={}", get_timestamp(), admin_id, worker_id, action, new_role)
+        }
+        LogEvent::AdminAuth { admin1_id, admin2_id, checkpoint_id } => {
+            format!("{} ADMIN_AUTH | admin1_id={} | admin2_id={} | checkpoint_id={}", get_timestamp(), admin1_id, admin2_id, checkpoint_id)
+        }
+    };
+
+    let mut file = match OpenOptions::new().create(true).append(true).open("auth.log") {
+        Ok(f) => f,
+        Err(e) => {
+            eprintln!("Failed to open auth.log: {}", e);
+            return;
+        }
+    };
+
+    if let Err(e) = writeln!(file, "{}", log_message) {
+        eprintln!("Failed to write to auth.log: {}", e);
+    }
 }
 
 // Main server function

@@ -52,6 +52,14 @@ fn initialize_database() -> Result<Connection> {
         [],
     )?;
 
+    conn.execute(
+        "INSERT OR IGNORE INTO checkpoints (id, location, allowed_roles) VALUES 
+        (999, 'AdminSystem', 'Admin')",
+        [],
+    )?;
+    
+    
+
     Ok(conn)
 }
 
