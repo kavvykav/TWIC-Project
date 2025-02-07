@@ -1,12 +1,14 @@
 /****************
     IMPORTS
 ****************/
+use chrono::Local;
 use common::{
     CheckpointReply, CheckpointState, Client, DatabaseReply, DatabaseRequest, Role, DATABASE_ADDR,
     SERVER_ADDR,
 };
 use ctrlc;
 use rusqlite::{params, Connection, Result};
+use std::fs::OpenOptions;
 use std::{
     collections::HashMap,
     io::{BufRead, BufReader, Write},
@@ -16,9 +18,6 @@ use std::{
     thread,
     time::Duration,
 };
-use std::fs::OpenOptions;
-use std::io::Write;
-use chrono::Local;
 
 const LOG_FILE: &str = "auth.log";
 
@@ -229,7 +228,7 @@ fn authenticate_rfid(
                 println!("Response status: {}", response.status);
 
                 if response.status != "success".to_string() {
-                    log_event(Some(rfid), Some(checkpoint), "RFID", "Failed");
+                    log_event(Some(*rfid), Some(*checkpoint), "RFID", "Failed");
                     return false;
                 }
 
@@ -258,16 +257,16 @@ fn authenticate_rfid(
                     && allowed_locations_vec.contains(&response.location.unwrap());
 
                 if auth_successful {
-                    log_event(Some(rfid), Some(checkpoint), "RFID", "Successful");
+                    log_event(Some(*rfid), Some(*checkpoint), "RFID", "Successful");
                 } else {
-                    log_event(Some(rfid), Some(checkpoint), "RFID", "Failed");
+                    log_event(Some(*rfid), Some(*checkpoint), "RFID", "Failed");
                 }
 
                 return auth_successful;
             }
             Err(e) => {
                 eprintln!("Error querying database for RFID: {:?}", e);
-                log_event(Some(*rfid_tag.unwrap()), Some(*checkpoint_id.unwrap()), "RFID", "Failed");
+                log_event(*rfid_tag, *checkpoint_id, "RFID", "Failed");
                 return false;
             }
         }
@@ -276,7 +275,6 @@ fn authenticate_rfid(
         return false;
     }
 }
-
 
 /*
  * Name: authenticate_fingerprint
@@ -381,16 +379,15 @@ fn authenticate_fingerprint(
             }
             Err(e) => {
                 eprintln!("Error querying database for fingerprint hash: {}", e);
-                log_event(Some(*rfid).copied(), Some(*checkpoint).copied(), "Fingerprint", "Failed");
+                log_event(Some(*rfid), Some(*checkpoint), "Fingerprint", "Failed");
                 return false;
             }
         }
     } else {
-        log_event(*rfid_tag.copied(), *checkpoint_id.copied(), "Fingerprint", "Failed");
+        log_event(*rfid_tag, *checkpoint_id, "Fingerprint", "Failed");
         return false;
     }
 }
-
 
 /*
  * Name: query_database
@@ -717,53 +714,55 @@ fn send_response<T: serde::Serialize>(
         .map_err(|e| format!("Failed to send response: {}", e))
 }
 
-// Enum for different log events
-#[derive(Debug)]
-enum LogEvent {
-    AuthSuccess { worker_id: u32, checkpoint_id: u32 },
-    AuthFailed { worker_id: u32, checkpoint_id: u32, reason: String },
-    RoleChange { admin_id: u32, worker_id: u32, action: String, new_role: String },
-    AdminAuth { admin1_id: u32, admin2_id: u32, checkpoint_id: u32 },
-}
-
-// Helper function to get a readable timestamp
-fn get_timestamp() -> String {
-    let duration = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
-    let seconds = duration.as_secs();
-    let millis = duration.subsec_millis();
-    format!("[{}.{:03}]", seconds, millis)
-}
-
 // Writes log entry to `auth.log`
-fn log_event(event: LogEvent) {
-    let log_message = match event {
-        LogEvent::AuthSuccess { worker_id, checkpoint_id } => {
-            format!("{} AUTH_SUCCESS | worker_id={} | checkpoint_id={}", get_timestamp(), worker_id, checkpoint_id)
-        }
-        LogEvent::AuthFailed { worker_id, checkpoint_id, reason } => {
-            format!("{} AUTH_FAILED | worker_id={} | checkpoint_id={} | reason={}", get_timestamp(), worker_id, checkpoint_id, reason)
-        }
-        LogEvent::RoleChange { admin_id, worker_id, action, new_role } => {
-            format!("{} ROLE_CHANGE | admin_id={} | worker_id={} | action={} | new_role={}", get_timestamp(), admin_id, worker_id, action, new_role)
-        }
-        LogEvent::AdminAuth { admin1_id, admin2_id, checkpoint_id } => {
-            format!("{} ADMIN_AUTH | admin1_id={} | admin2_id={} | checkpoint_id={}", get_timestamp(), admin1_id, admin2_id, checkpoint_id)
-        }
-    };
+fn log_event(worker_id: Option<u32>, checkpoint_id: Option<u32>, method: &str, status: &str) {
+    let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    let log_entry = format!(
+        "[{}] Worker ID: {:?}, Checkpoint ID: {:?}, Method: {}, Status: {}\n",
+        timestamp, worker_id, checkpoint_id, method, status
+    );
 
-    let mut file = match OpenOptions::new().create(true).append(true).open("auth.log") {
+    let mut file = match OpenOptions::new().create(true).append(true).open(LOG_FILE) {
         Ok(f) => f,
         Err(e) => {
-            eprintln!("Failed to open auth.log: {}", e);
+            eprintln!("Failed to open {}: {}", LOG_FILE, e);
             return;
         }
     };
 
-    if let Err(e) = writeln!(file, "{}", log_message) {
+    if let Err(e) = writeln!(file, "{}", log_entry) {
         eprintln!("Failed to write to auth.log: {}", e);
     }
-}
 
+    match method {
+        "RFID" | "Fingerprint" => {
+            if status == "Successful" {
+                println!(
+                    "[LOG] Authentication success: Worker {} at Checkpoint {}",
+                    worker_id.unwrap_or(0),
+                    checkpoint_id.unwrap_or(0)
+                );
+            } else {
+                println!(
+                    "[LOG] Authentication failed: Worker {} at Checkpoint {}",
+                    worker_id.unwrap_or(0),
+                    checkpoint_id.unwrap_or(0)
+                );
+            }
+        }
+        "RoleChange" => {
+            println!(
+                "[LOG] Role changed for Worker {} to {}",
+                worker_id.unwrap_or(0),
+                status
+            );
+        }
+        "AdminAuth" => {
+            println!("[LOG] Admin authenticated: {}", worker_id.unwrap_or(0));
+        }
+        _ => {}
+    }
+}
 // Main server function
 fn main() -> Result<(), rusqlite::Error> {
     let listener = TcpListener::bind(SERVER_ADDR).expect("Failed to bind address");
@@ -842,11 +841,11 @@ fn main() -> Result<(), rusqlite::Error> {
     println!("Server terminated successfully");
     Ok(())
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use rusqlite::params;
-    use std::sync::{Arc, Mutex};
 
     // Helper function to initialize the database with test data
     fn setup_test_database() -> Connection {

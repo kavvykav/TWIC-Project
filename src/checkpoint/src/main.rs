@@ -2,13 +2,13 @@
     IMPORTS
 ****************/
 use common::{CheckpointReply, CheckpointRequest, CheckpointState, Lcd, LCD_LINE_1, LCD_LINE_2};
+use std::collections::HashMap;
 use std::env;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
 
 mod fingerprint;
 mod rfid;
@@ -25,13 +25,18 @@ const BAUD_RATE: u32 = 9600;
  * Function: sends an init message to have the checkpoint register in the centralized database,
  *           where the checkpoint is assigned an ID.
  */
- fn send_and_receive(
+fn send_and_receive(
     stream: &mut TcpStream,
     request: &CheckpointRequest,
     pending_requests: Arc<Mutex<HashMap<String, u32>>>,
-    admin_id: u32
+    admin_id: u32,
 ) -> CheckpointReply {
-    let request_key = format!("{}_{}_{}", request.command, request.worker_id.unwrap_or(0), request.checkpoint_id.unwrap_or(0));
+    let request_key = format!(
+        "{}_{}_{}",
+        request.command,
+        request.worker_id.unwrap_or(0),
+        request.checkpoint_id.unwrap_or(0)
+    );
 
     let mut pending = pending_requests.lock().unwrap();
 
@@ -87,18 +92,22 @@ const BAUD_RATE: u32 = 9600;
             return response;
         } else {
             // Same admin cannot approve their own request
-            println!("Admin {} tried to approve their own request again. Waiting for another admin.", admin_id);
+            println!(
+                "Admin {} tried to approve their own request again. Waiting for another admin.",
+                admin_id
+            );
             return CheckpointReply::waiting();
-
         }
     } else {
         // First admin makes the request
         pending.insert(request_key, admin_id);
-        println!("Admin {} initiated request: {:?}", admin_id, request.command);
+        println!(
+            "Admin {} initiated request: {:?}",
+            admin_id, request.command
+        );
         return CheckpointReply::waiting();
     }
 }
-
 
 /*
  * Name: init_lcd
@@ -164,10 +173,14 @@ fn main() {
         }
     };
 
+    let admin_id = 1; // Example admin ID
+    let is_admin = true; // Example admin status
+
     // Send an init request to register in the database
     let init_req = CheckpointRequest::init_request(location.clone(), authorized_roles);
 
-    let init_reply: CheckpointReply = send_and_receive(&mut stream, &init_req);
+    let init_reply: CheckpointReply =
+        send_and_receive(&mut stream, &init_req, pending_requests.clone(), admin_id);
 
     if init_reply.status == "error" {
         eprintln!("Error with registering the checkpoint");
@@ -221,7 +234,12 @@ fn main() {
                     );
 
                     // Send and receive the response
-                    let enroll_reply = send_and_receive(&mut stream, &enroll_req, Arc::clone(&pending_requests), admin_id);
+                    let enroll_reply = send_and_receive(
+                        &mut stream,
+                        &enroll_req,
+                        Arc::clone(&pending_requests.clone()),
+                        admin_id,
+                    );
                     lcd.display_string("Enrolling...", LCD_LINE_1);
                     thread::sleep(Duration::from_secs(5));
                     lcd.clear();
@@ -263,7 +281,12 @@ fn main() {
                     );
 
                     // Send request and receive response
-                    let update_reply = send_and_receive(&mut stream, &update_req, Arc::clone(&pending_requests), admin_id);
+                    let update_reply = send_and_receive(
+                        &mut stream,
+                        &update_req,
+                        Arc::clone(&pending_requests),
+                        admin_id,
+                    );
 
                     // Error check
                     if update_reply.status == "success".to_string() {
@@ -296,7 +319,12 @@ fn main() {
                     let delete_req = CheckpointRequest::delete_req(checkpoint_id, worker_id);
 
                     // Send request and receive response
-                    let delete_reply = send_and_receive(&mut stream, &delete_req, Arc::clone(&pending_requests), admin_id);
+                    let delete_reply = send_and_receive(
+                        &mut stream,
+                        &delete_req,
+                        Arc::clone(&pending_requests),
+                        admin_id,
+                    );
 
                     // Error check
                     if delete_reply.status == "success".to_string() {
@@ -331,9 +359,19 @@ fn main() {
                         println!("Validating card...");
                         lcd.display_string("Validating", LCD_LINE_1);
 
-                        let location = if is_admin { "AdminSystem".to_string() } else { location };
-                        let rfid_auth_req = CheckpointRequest::rfid_auth_request(checkpoint_id, worker_id);
-                        let auth_reply: CheckpointReply = send_and_receive(&mut stream, &rfid_auth_req);
+                        let location = if is_admin {
+                            "AdminSystem".to_string()
+                        } else {
+                            location.clone()
+                        };
+                        let rfid_auth_req =
+                            CheckpointRequest::rfid_auth_request(checkpoint_id, worker_id);
+                        let auth_reply: CheckpointReply = send_and_receive(
+                            &mut stream,
+                            &rfid_auth_req,
+                            pending_requests.clone(),
+                            admin_id,
+                        );
 
                         if let Some(CheckpointState::AuthFailed) = auth_reply.auth_response {
                             println!("Authentication failed.");
@@ -359,8 +397,12 @@ fn main() {
                             worker_id,
                             worker_fingerprint,
                         );
-                        let fingerprint_auth_reply: CheckpointReply =
-                            send_and_receive(&mut stream, &fingerprint_auth_request);
+                        let fingerprint_auth_reply: CheckpointReply = send_and_receive(
+                            &mut stream,
+                            &fingerprint_auth_request,
+                            pending_requests.clone(),
+                            admin_id,
+                        );
                         if let Some(CheckpointState::AuthFailed) =
                             fingerprint_auth_reply.auth_response
                         {
