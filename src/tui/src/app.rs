@@ -15,6 +15,23 @@ use ratatui::{
 use std::io;
 
 #[derive(Debug)]
+pub enum Submission {
+    Enroll {
+        name: String,
+        biometric: String,
+        role_id: String,
+        location: String,
+    },
+    Update {
+        employee_id: String,
+        role_id: String,
+    },
+    Delete {
+        employee_id: String,
+    },
+}
+
+#[derive(Debug)]
 enum AppMode {
     Main,
     EnrollForm {
@@ -37,7 +54,6 @@ enum AppMode {
     },
 }
 
-#[derive(Debug)]
 pub struct App {
     running: bool,
     // Main menu selection index.
@@ -46,6 +62,8 @@ pub struct App {
     mode: AppMode,
     // Main menu items.
     menu_items: Vec<&'static str>,
+    // When a form is submitted, this is set.
+    submission: Option<Submission>,
 }
 
 impl Default for App {
@@ -59,6 +77,7 @@ impl Default for App {
                 "Update existing employee",
                 "Delete existing employee",
             ],
+            submission: None,
         }
     }
 }
@@ -68,7 +87,9 @@ impl App {
         Self::default()
     }
 
-    pub fn run(mut self) -> Result<()> {
+    /// Runs the TUI app. When a form is submitted, the corresponding submission
+    /// is stored and the TUI quits. This method then returns the submission (if any).
+    pub fn run(mut self) -> Result<Option<Submission>> {
         enable_raw_mode()?;
         let stdout = io::stdout();
         let backend = CrosstermBackend::new(stdout);
@@ -82,16 +103,13 @@ impl App {
 
         disable_raw_mode()?;
         execute!(io::stdout(), crossterm::terminal::LeaveAlternateScreen)?;
-        Ok(())
+        Ok(self.submission)
     }
 
-    /// Draws the UI.
-    /// A header is rendered at the top (with enough height for 3 lines) and the
-    /// active menu or form fills the rest.
     fn draw(&mut self, frame: &mut Frame) {
         let header_text = match &self.mode {
             AppMode::Main => {
-                "Employee Management Dashboard\nUse arrow keys or j/k to navigate. Enter to activate a field.\nPress Ctrl+S to submit a form, Esc to cancel, q or Ctrl+C to quit."
+                "Employee Management Dashboard\nUse arrow keys or j/k to navigate. Enter to select/activate a field.\nPress Ctrl+S to submit a form, Esc to cancel, q or Ctrl+C to quit."
                     .to_string()
             }
             AppMode::EnrollForm { .. } => {
@@ -108,7 +126,7 @@ impl App {
             }
         };
 
-        // Allocate a header area (Length 5 for borders + text) and the rest for content.
+        // Create a layout: header area (Length 5) and the rest for content.
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .margin(1)
@@ -157,7 +175,6 @@ impl App {
                     .into_iter()
                     .enumerate()
                     .map(|(i, field)| {
-                        // Highlight the active field; while editing, underline it.
                         let mut style = if i == *active_field {
                             Style::default().add_modifier(Modifier::REVERSED)
                         } else {
@@ -243,14 +260,13 @@ impl App {
             self.quit();
             return;
         }
-        if key.modifiers == KeyModifiers::CONTROL && (key.code == KeyCode::Char('c')) {
+        if key.modifiers == KeyModifiers::CONTROL && key.code == KeyCode::Char('c') {
             self.quit();
             return;
         }
 
         match &mut self.mode {
             AppMode::Main => {
-                // In the main menu, Esc quits.
                 if key.code == KeyCode::Esc {
                     self.quit();
                     return;
@@ -266,36 +282,33 @@ impl App {
                             self.selected_index += 1;
                         }
                     }
-                    KeyCode::Enter => {
-                        // Open the corresponding form.
-                        match self.selected_index {
-                            0 => {
-                                self.mode = AppMode::EnrollForm {
-                                    name: String::new(),
-                                    biometric: String::new(),
-                                    role_id: String::new(),
-                                    location: String::new(),
-                                    active_field: 0,
-                                    editing: false,
-                                };
-                            }
-                            1 => {
-                                self.mode = AppMode::UpdateForm {
-                                    employee_id: String::new(),
-                                    role_id: String::new(),
-                                    active_field: 0,
-                                    editing: false,
-                                };
-                            }
-                            2 => {
-                                self.mode = AppMode::DeleteForm {
-                                    employee_id: String::new(),
-                                    editing: false,
-                                };
-                            }
-                            _ => {}
+                    KeyCode::Enter => match self.selected_index {
+                        0 => {
+                            self.mode = AppMode::EnrollForm {
+                                name: String::new(),
+                                biometric: String::new(),
+                                role_id: String::new(),
+                                location: String::new(),
+                                active_field: 0,
+                                editing: false,
+                            };
                         }
-                    }
+                        1 => {
+                            self.mode = AppMode::UpdateForm {
+                                employee_id: String::new(),
+                                role_id: String::new(),
+                                active_field: 0,
+                                editing: false,
+                            };
+                        }
+                        2 => {
+                            self.mode = AppMode::DeleteForm {
+                                employee_id: String::new(),
+                                editing: false,
+                            };
+                        }
+                        _ => {}
+                    },
                     _ => {}
                 }
             }
@@ -308,10 +321,8 @@ impl App {
                 editing,
             } => {
                 if *editing {
-                    // In editing mode, all keypresses go into the active field.
                     match key.code {
                         KeyCode::Enter => {
-                            // Finish editing.
                             *editing = false;
                         }
                         KeyCode::Backspace => match *active_field {
@@ -347,19 +358,18 @@ impl App {
                         _ => {}
                     }
                 } else {
-                    // Navigation mode.
-                    // Ctrl+S submits the form.
                     if key.modifiers == KeyModifiers::CONTROL && key.code == KeyCode::Char('s') {
-                        println!(
-                            "Enroll Form Submitted: name: {}, biometric: {}, role_id: {}, location: {}",
-                            name, biometric, role_id, location
-                        );
-                        self.mode = AppMode::Main;
+                        self.submission = Some(Submission::Enroll {
+                            name: name.clone(),
+                            biometric: biometric.clone(),
+                            role_id: role_id.clone(),
+                            location: location.clone(),
+                        });
+                        self.quit();
                         return;
                     }
                     match key.code {
                         KeyCode::Enter => {
-                            // Enter toggles editing mode for the active field.
                             *editing = true;
                         }
                         KeyCode::Up | KeyCode::Char('k') => {
@@ -415,11 +425,11 @@ impl App {
                     }
                 } else {
                     if key.modifiers == KeyModifiers::CONTROL && key.code == KeyCode::Char('s') {
-                        println!(
-                            "Update Form Submitted: employee_id: {}, role_id: {}",
-                            employee_id, role_id
-                        );
-                        self.mode = AppMode::Main;
+                        self.submission = Some(Submission::Update {
+                            employee_id: employee_id.clone(),
+                            role_id: role_id.clone(),
+                        });
+                        self.quit();
                         return;
                     }
                     match key.code {
@@ -465,8 +475,10 @@ impl App {
                     }
                 } else {
                     if key.modifiers == KeyModifiers::CONTROL && key.code == KeyCode::Char('s') {
-                        println!("Delete Form Submitted: employee_id: {}", employee_id);
-                        self.mode = AppMode::Main;
+                        self.submission = Some(Submission::Delete {
+                            employee_id: employee_id.clone(),
+                        });
+                        self.quit();
                         return;
                     }
                     match key.code {
@@ -486,8 +498,4 @@ impl App {
     fn quit(&mut self) {
         self.running = false;
     }
-}
-
-fn main() -> Result<()> {
-    App::new().run()
 }
