@@ -2,9 +2,11 @@
     IMPORTS
 ****************/
 use common::{CheckpointReply, CheckpointRequest, CheckpointState, Lcd, LCD_LINE_1, LCD_LINE_2};
+use std::collections::HashMap;
 use std::env;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
@@ -23,56 +25,88 @@ const BAUD_RATE: u32 = 9600;
  * Function: sends an init message to have the checkpoint register in the centralized database,
  *           where the checkpoint is assigned an ID.
  */
-fn send_and_receive(stream: &mut TcpStream, init_req: &CheckpointRequest) -> CheckpointReply {
-    // Serialize structure into a JSON
-    let mut json = match serde_json::to_string(init_req) {
-        Ok(json) => json,
-        Err(e) => {
-            eprintln!("Could not serialize structure: {}", e);
-            return CheckpointReply::error();
-        }
-    };
-    json.push('\0');
+fn send_and_receive(
+    stream: &mut TcpStream,
+    request: &CheckpointRequest,
+    pending_requests: Arc<Mutex<HashMap<String, u32>>>,
+    admin_id: u32,
+) -> CheckpointReply {
+    let request_key = format!(
+        "{}_{}_{}",
+        request.command,
+        request.worker_id.unwrap_or(0),
+        request.checkpoint_id.unwrap_or(0)
+    );
 
-    // Send to Port Server
-    if let Err(e) = stream.write_all(json.as_bytes()) {
-        eprintln!("Could not send to port server: {}", e);
-        return CheckpointReply::error();
+    let mut pending = pending_requests.lock().unwrap();
+
+    if let Some(existing_admin) = pending.get(&request_key) {
+        if *existing_admin != admin_id {
+            // If a different admin sends the same request, proceed
+            println!("Two admins confirmed request: {:?}", request.command);
+            pending.remove(&request_key); // Remove from pending
+
+            let mut json = match serde_json::to_string(request) {
+                Ok(json) => json,
+                Err(e) => {
+                    eprintln!("Could not serialize structure: {}", e);
+                    return CheckpointReply::error();
+                }
+            };
+            json.push('\0');
+
+            if let Err(e) = stream.write_all(json.as_bytes()) {
+                eprintln!("Could not send to port server: {}", e);
+                return CheckpointReply::error();
+            }
+
+            stream.flush().unwrap();
+
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut buffer = Vec::new();
+            let buffer_str: String = match reader.read_until(b'\0', &mut buffer) {
+                Ok(_) => match String::from_utf8(buffer.clone()) {
+                    Ok(mut string) => {
+                        string.pop();
+                        string
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to convert buffer to a string format: {}", e);
+                        String::new()
+                    }
+                },
+                Err(e) => {
+                    eprintln!("Failed to read response from port server: {}", e);
+                    String::new()
+                }
+            };
+
+            let response: CheckpointReply = match serde_json::from_str(&buffer_str) {
+                Ok(resp) => resp,
+                Err(e) => {
+                    eprintln!("Could not deserialize response: {}", e);
+                    return CheckpointReply::error();
+                }
+            };
+
+            return response;
+        } else {
+            // Same admin cannot approve their own request
+            println!(
+                "Admin {} tried to approve their own request again. Waiting for another admin.",
+                admin_id
+            );
+            return CheckpointReply::waiting();
+        }
+    } else {
+        // First admin makes the request
+        pending.insert(request_key, admin_id);
+        println!(
+            "Admin {} initiated request: {:?}",
+            admin_id, request.command
+        );
+        return CheckpointReply::waiting();
     }
-
-    // Flush the stream
-    stream.flush().unwrap();
-
-    // Read response
-    let mut reader = BufReader::new(stream.try_clone().unwrap());
-    let mut buffer = Vec::new();
-
-    let buffer_str: String = match reader.read_until(b'\0', &mut buffer) {
-        Ok(_) => match String::from_utf8(buffer.clone()) {
-            Ok(mut string) => {
-                string.pop();
-                string
-            }
-            Err(e) => {
-                eprintln!("Failed to convert buffer to a string format: {}", e);
-                String::new()
-            }
-        },
-        Err(e) => {
-            eprintln!("Failed to read response from port server: {}", e);
-            String::new()
-        }
-    };
-
-    // Deserialize the response
-    let response: CheckpointReply = match serde_json::from_str(&buffer_str) {
-        Ok(resp) => resp,
-        Err(e) => {
-            eprintln!("Could not deserialize response: {}", e);
-            return CheckpointReply::error();
-        }
-    };
-    response
 }
 
 /*
@@ -99,6 +133,7 @@ fn init_lcd() -> Option<Lcd> {
 fn main() {
     // Parse command line arguments to get the port location and roles that this
     // checkpoint allows
+    let pending_requests: Arc<Mutex<HashMap<String, u32>>> = Arc::new(Mutex::new(HashMap::new()));
     let args: Vec<String> = env::args().collect();
     if args.len() < 4 {
         eprintln!(
@@ -138,10 +173,14 @@ fn main() {
         }
     };
 
+    let admin_id = 1; // Example admin ID
+    let is_admin = true; // Example admin status
+
     // Send an init request to register in the database
     let init_req = CheckpointRequest::init_request(location.clone(), authorized_roles);
 
-    let init_reply: CheckpointReply = send_and_receive(&mut stream, &init_req);
+    let init_reply: CheckpointReply =
+        send_and_receive(&mut stream, &init_req, pending_requests.clone(), admin_id);
 
     if init_reply.status == "error" {
         eprintln!("Error with registering the checkpoint");
@@ -195,7 +234,12 @@ fn main() {
                     );
 
                     // Send and receive the response
-                    let enroll_reply = send_and_receive(&mut stream, &enroll_req);
+                    let enroll_reply = send_and_receive(
+                        &mut stream,
+                        &enroll_req,
+                        Arc::clone(&pending_requests.clone()),
+                        admin_id,
+                    );
                     lcd.display_string("Enrolling...", LCD_LINE_1);
                     thread::sleep(Duration::from_secs(5));
                     lcd.clear();
@@ -237,7 +281,12 @@ fn main() {
                     );
 
                     // Send request and receive response
-                    let update_reply = send_and_receive(&mut stream, &update_req);
+                    let update_reply = send_and_receive(
+                        &mut stream,
+                        &update_req,
+                        Arc::clone(&pending_requests),
+                        admin_id,
+                    );
 
                     // Error check
                     if update_reply.status == "success".to_string() {
@@ -270,7 +319,12 @@ fn main() {
                     let delete_req = CheckpointRequest::delete_req(checkpoint_id, worker_id);
 
                     // Send request and receive response
-                    let delete_reply = send_and_receive(&mut stream, &delete_req);
+                    let delete_reply = send_and_receive(
+                        &mut stream,
+                        &delete_req,
+                        Arc::clone(&pending_requests),
+                        admin_id,
+                    );
 
                     // Error check
                     if delete_reply.status == "success".to_string() {
@@ -305,10 +359,20 @@ fn main() {
                         println!("Validating card...");
                         lcd.display_string("Validating", LCD_LINE_1);
 
+                        let location = if is_admin {
+                            "AdminSystem".to_string()
+                        } else {
+                            location.clone()
+                        };
                         let rfid_auth_req =
                             CheckpointRequest::rfid_auth_request(checkpoint_id, worker_id);
-                        let auth_reply: CheckpointReply =
-                            send_and_receive(&mut stream, &rfid_auth_req);
+                        let auth_reply: CheckpointReply = send_and_receive(
+                            &mut stream,
+                            &rfid_auth_req,
+                            pending_requests.clone(),
+                            admin_id,
+                        );
+
                         if let Some(CheckpointState::AuthFailed) = auth_reply.auth_response {
                             println!("Authentication failed.");
                             lcd.clear();
@@ -333,8 +397,12 @@ fn main() {
                             worker_id,
                             worker_fingerprint,
                         );
-                        let fingerprint_auth_reply: CheckpointReply =
-                            send_and_receive(&mut stream, &fingerprint_auth_request);
+                        let fingerprint_auth_reply: CheckpointReply = send_and_receive(
+                            &mut stream,
+                            &fingerprint_auth_request,
+                            pending_requests.clone(),
+                            admin_id,
+                        );
                         if let Some(CheckpointState::AuthFailed) =
                             fingerprint_auth_reply.auth_response
                         {

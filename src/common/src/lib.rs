@@ -180,6 +180,17 @@ impl CheckpointReply {
             auth_response: Some(state),
         };
     }
+
+    pub fn waiting() -> Self {
+        return CheckpointReply {
+            status: "waiting".to_string(),
+            checkpoint_id: None,
+            worker_id: None,
+            fingerprint: None,
+            data: None,
+            auth_response: None,
+        };
+    }
 }
 
 /*********************************************

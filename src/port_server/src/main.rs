@@ -1,12 +1,14 @@
 /****************
     IMPORTS
 ****************/
+use chrono::Local;
 use common::{
     CheckpointReply, CheckpointState, Client, DatabaseReply, DatabaseRequest, Role, DATABASE_ADDR,
     SERVER_ADDR,
 };
 use ctrlc;
 use rusqlite::{params, Connection, Result};
+use std::fs::OpenOptions;
 use std::{
     collections::HashMap,
     io::{BufRead, BufReader, Write},
@@ -16,6 +18,8 @@ use std::{
     thread,
     time::Duration,
 };
+
+const LOG_FILE: &str = "auth.log";
 
 /**
  * Name: initialize_database
@@ -156,12 +160,18 @@ fn authenticate_rfid(
                  WHERE employees.id = ?",
             ) {
                 Ok(stmt) => stmt,
-                Err(_) => return false,
+                Err(_) => {
+                    log_event(*rfid_tag, *checkpoint_id, "RFID", "Failed");
+                    return false;
+                }
             };
 
             let role_name: String = match stmt.query_row([rfid], |row| row.get(0)) {
                 Ok(role) => role,
-                Err(_) => return false,
+                Err(_) => {
+                    log_event(*rfid_tag, *checkpoint_id, "RFID", "Failed");
+                    return false;
+                }
             };
 
             let mut stmt = match conn.prepare(
@@ -170,12 +180,18 @@ fn authenticate_rfid(
                  WHERE id = ?",
             ) {
                 Ok(stmt) => stmt,
-                Err(_) => return false,
+                Err(_) => {
+                    log_event(*rfid_tag, *checkpoint_id, "RFID", "Failed");
+                    return false;
+                }
             };
 
             let allowed_roles: String = match stmt.query_row([checkpoint], |row| row.get(0)) {
                 Ok(roles) => roles,
-                Err(_) => return false,
+                Err(_) => {
+                    log_event(*rfid_tag, *checkpoint_id, "RFID", "Failed");
+                    return false;
+                }
             };
 
             let allowed_roles_vec: Vec<String> = allowed_roles
@@ -184,8 +200,10 @@ fn authenticate_rfid(
                 .collect();
 
             if !allowed_roles_vec.contains(&role_name) {
+                log_event(*rfid_tag, *checkpoint_id, "RFID", "Failed");
                 return false;
             } else {
+                log_event(*rfid_tag, *checkpoint_id, "RFID", "Successful");
                 return true;
             }
         }
@@ -210,6 +228,7 @@ fn authenticate_rfid(
                 println!("Response status: {}", response.status);
 
                 if response.status != "success".to_string() {
+                    log_event(Some(*rfid), Some(*checkpoint), "RFID", "Failed");
                     return false;
                 }
 
@@ -233,16 +252,26 @@ fn authenticate_rfid(
                     .map(|loc| loc.trim().to_string())
                     .collect();
 
-                return Some(rfid) == response.worker_id.as_ref()
+                let auth_successful = Some(rfid) == response.worker_id.as_ref()
                     && authorized_roles.contains(&role_str)
                     && allowed_locations_vec.contains(&response.location.unwrap());
+
+                if auth_successful {
+                    log_event(Some(*rfid), Some(*checkpoint), "RFID", "Successful");
+                } else {
+                    log_event(Some(*rfid), Some(*checkpoint), "RFID", "Failed");
+                }
+
+                return auth_successful;
             }
             Err(e) => {
                 eprintln!("Error querying database for RFID: {:?}", e);
+                log_event(*rfid_tag, *checkpoint_id, "RFID", "Failed");
                 return false;
             }
         }
     } else {
+        log_event(*rfid_tag, *checkpoint_id, "RFID", "Failed");
         return false;
     }
 }
@@ -268,17 +297,29 @@ fn authenticate_fingerprint(
                  WHERE employees.id = ?",
             ) {
                 Ok(stmt) => stmt,
-                Err(_) => return false,
+                Err(_) => {
+                    log_event(Some(*rfid), Some(*checkpoint), "Fingerprint", "Failed");
+                    return false;
+                }
             };
 
-            let fingerprint_hash: String = match stmt.query_row([rfid], |row| row.get(0)) {
+            let stored_fingerprint: String = match stmt.query_row([rfid], |row| row.get(0)) {
                 Ok(fp) => fp,
-                Err(_) => return false,
+                Err(_) => {
+                    log_event(Some(*rfid), Some(*checkpoint), "Fingerprint", "Failed");
+                    return false;
+                }
             };
 
-            // Check if the hashes are equal
-            return fingerprint == &fingerprint_hash;
+            if fingerprint == &stored_fingerprint {
+                log_event(Some(*rfid), Some(*checkpoint), "Fingerprint", "Successful");
+                return true;
+            } else {
+                log_event(Some(*rfid), Some(*checkpoint), "Fingerprint", "Failed");
+                return false;
+            }
         }
+
         let request = DatabaseRequest {
             command: "AUTHENTICATE".to_string(),
             checkpoint_id: Some(checkpoint.clone()),
@@ -302,15 +343,14 @@ fn authenticate_fingerprint(
                 );
 
                 if response.status != "success".to_string() {
+                    log_event(Some(*rfid), Some(*checkpoint), "Fingerprint", "Failed");
                     return false;
                 }
 
                 let auth = Some(rfid) == response.worker_id.as_ref()
                     && Some(fingerprint) == response.worker_fingerprint.as_ref();
 
-                // This is the first time authenticating a worker at this port, so
-                // we are adding it to the local database.
-                if auth == true {
+                if auth {
                     match add_to_local_db(
                         conn,
                         response.worker_id.unwrap(),
@@ -320,26 +360,31 @@ fn authenticate_fingerprint(
                         response.allowed_locations.unwrap(),
                     ) {
                         Ok(_) => {
+                            log_event(Some(*rfid), Some(*checkpoint), "Fingerprint", "Successful");
                             return true;
                         }
                         Err(e) => {
                             eprintln!(
-                                "An error occured with adding the user to the database : {}",
+                                "An error occurred with adding the user to the database : {}",
                                 e
                             );
+                            log_event(Some(*rfid), Some(*checkpoint), "Fingerprint", "Failed");
                             return true;
                         }
                     }
                 } else {
+                    log_event(Some(*rfid), Some(*checkpoint), "Fingerprint", "Failed");
                     return false;
                 }
             }
             Err(e) => {
                 eprintln!("Error querying database for fingerprint hash: {}", e);
+                log_event(Some(*rfid), Some(*checkpoint), "Fingerprint", "Failed");
                 return false;
             }
         }
     } else {
+        log_event(*rfid_tag, *checkpoint_id, "Fingerprint", "Failed");
         return false;
     }
 }
@@ -669,6 +714,55 @@ fn send_response<T: serde::Serialize>(
         .map_err(|e| format!("Failed to send response: {}", e))
 }
 
+// Writes log entry to `auth.log`
+fn log_event(worker_id: Option<u32>, checkpoint_id: Option<u32>, method: &str, status: &str) {
+    let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    let log_entry = format!(
+        "[{}] Worker ID: {:?}, Checkpoint ID: {:?}, Method: {}, Status: {}\n",
+        timestamp, worker_id, checkpoint_id, method, status
+    );
+
+    let mut file = match OpenOptions::new().create(true).append(true).open(LOG_FILE) {
+        Ok(f) => f,
+        Err(e) => {
+            eprintln!("Failed to open {}: {}", LOG_FILE, e);
+            return;
+        }
+    };
+
+    if let Err(e) = writeln!(file, "{}", log_entry) {
+        eprintln!("Failed to write to auth.log: {}", e);
+    }
+
+    match method {
+        "RFID" | "Fingerprint" => {
+            if status == "Successful" {
+                println!(
+                    "[LOG] Authentication success: Worker {} at Checkpoint {}",
+                    worker_id.unwrap_or(0),
+                    checkpoint_id.unwrap_or(0)
+                );
+            } else {
+                println!(
+                    "[LOG] Authentication failed: Worker {} at Checkpoint {}",
+                    worker_id.unwrap_or(0),
+                    checkpoint_id.unwrap_or(0)
+                );
+            }
+        }
+        "RoleChange" => {
+            println!(
+                "[LOG] Role changed for Worker {} to {}",
+                worker_id.unwrap_or(0),
+                status
+            );
+        }
+        "AdminAuth" => {
+            println!("[LOG] Admin authenticated: {}", worker_id.unwrap_or(0));
+        }
+        _ => {}
+    }
+}
 // Main server function
 fn main() -> Result<(), rusqlite::Error> {
     let listener = TcpListener::bind(SERVER_ADDR).expect("Failed to bind address");
@@ -747,11 +841,11 @@ fn main() -> Result<(), rusqlite::Error> {
     println!("Server terminated successfully");
     Ok(())
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use rusqlite::params;
-    use std::sync::{Arc, Mutex};
 
     // Helper function to initialize the database with test data
     fn setup_test_database() -> Connection {
