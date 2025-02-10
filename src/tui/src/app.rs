@@ -17,23 +17,35 @@ use std::io;
 #[derive(Debug)]
 enum AppMode {
     Main,
-    Submenu {
-        main_index: usize,     // Which main menu option’s submenu is active.
-        selected_index: usize, // Which submenu item is selected.
+    EnrollForm {
+        name: String,
+        biometric: String,
+        role_id: String,
+        location: String,
+        active_field: usize, // 0: Name, 1: Biometric, 2: Role ID, 3: Location
+        editing: bool,       // false: navigation mode; true: editing mode
+    },
+    UpdateForm {
+        employee_id: String,
+        role_id: String,
+        active_field: usize, // 0: Employee ID, 1: Role ID
+        editing: bool,
+    },
+    DeleteForm {
+        employee_id: String,
+        editing: bool,
     },
 }
 
 #[derive(Debug)]
 pub struct App {
     running: bool,
-    // Index for the currently selected main menu option.
+    // Main menu selection index.
     selected_index: usize,
-    // The current mode determines what is rendered.
+    // Current mode determines what is rendered.
     mode: AppMode,
-    // The main menu items.
+    // Main menu items.
     menu_items: Vec<&'static str>,
-    // A vector of submenus. Each submenu corresponds to a main menu option.
-    submenus: Vec<Vec<&'static str>>,
 }
 
 impl Default for App {
@@ -46,11 +58,6 @@ impl Default for App {
                 "Enroll new employee",
                 "Update existing employee",
                 "Delete existing employee",
-            ],
-            submenus: vec![
-                vec!["Status Details", "Statistics", "Logs"],
-                vec!["Edit Config", "Reset Port", "Backup Config"],
-                vec!["Live Traffic", "Historical Data", "Alerts"],
             ],
         }
     }
@@ -79,24 +86,29 @@ impl App {
     }
 
     /// Draws the UI.
-    /// A header is rendered at the top with enough height to show 3 lines of text.
-    /// The menu (or submenu) occupies the rest of the screen.
+    /// A header is rendered at the top (with enough height for 3 lines) and the
+    /// active menu or form fills the rest.
     fn draw(&mut self, frame: &mut Frame) {
-        // Header text varies depending on the current mode.
-        let header_text = match self.mode {
+        let header_text = match &self.mode {
             AppMode::Main => {
-                "Port Admin Dashboard\nNavigate with arrow keys or hjkl. Enter to select an option.\nPress q, Esc, or Ctrl+C to quit."
+                "Employee Management Dashboard\nUse arrow keys or j/k to navigate. Enter to activate a field.\nPress Ctrl+S to submit a form, Esc to cancel, q or Ctrl+C to quit."
                     .to_string()
             }
-            AppMode::Submenu { main_index, .. } => {
-                format!(
-                    "Submenu for {}\nUse arrow keys or hjkl to navigate. Enter to select an option, Esc to go back.\nPress q or Ctrl+C to quit.",
-                    self.menu_items[main_index]
-                )
+            AppMode::EnrollForm { .. } => {
+                "Enroll New Employee\nPress Enter on a field to start/stop editing (j/k won’t navigate while editing).\nPress Ctrl+S to submit, Esc to cancel."
+                    .to_string()
+            }
+            AppMode::UpdateForm { .. } => {
+                "Update Employee\nPress Enter on a field to start/stop editing (j/k won’t navigate while editing).\nPress Ctrl+S to submit, Esc to cancel."
+                    .to_string()
+            }
+            AppMode::DeleteForm { .. } => {
+                "Delete Employee\nPress Enter to start/stop editing the Employee ID.\nPress Ctrl+S to submit, Esc to cancel."
+                    .to_string()
             }
         };
 
-        // Increase the header height to 5 to allow the block border to render 3 lines of text.
+        // Allocate a header area (Length 5 for borders + text) and the rest for content.
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .margin(1)
@@ -108,7 +120,6 @@ impl App {
             .centered();
         frame.render_widget(header_paragraph, chunks[0]);
 
-        // Render the main menu or the submenu, depending on the current mode.
         match &self.mode {
             AppMode::Main => {
                 let main_menu_items: Vec<ListItem> = self
@@ -128,31 +139,94 @@ impl App {
                     .block(Block::bordered().title("Main Menu (q, Esc, Ctrl+C: quit)"));
                 frame.render_widget(main_menu, chunks[1]);
             }
-            AppMode::Submenu {
-                main_index,
-                selected_index,
+            AppMode::EnrollForm {
+                name,
+                biometric,
+                role_id,
+                location,
+                active_field,
+                editing,
             } => {
-                let submenu = &self.submenus[*main_index];
-                let submenu_items: Vec<ListItem> = submenu
-                    .iter()
+                let fields = vec![
+                    format!("Name: {}", name),
+                    format!("Biometric: {}", biometric),
+                    format!("Role ID: {}", role_id),
+                    format!("Location: {}", location),
+                ];
+                let list_items: Vec<ListItem> = fields
+                    .into_iter()
                     .enumerate()
-                    .map(|(i, &item)| {
-                        let style = if i == *selected_index {
+                    .map(|(i, field)| {
+                        // Highlight the active field; while editing, underline it.
+                        let mut style = if i == *active_field {
                             Style::default().add_modifier(Modifier::REVERSED)
                         } else {
                             Style::default()
                         };
-                        ListItem::new(item).style(style)
+                        if i == *active_field && *editing {
+                            style = style.add_modifier(Modifier::UNDERLINED);
+                        }
+                        ListItem::new(field).style(style)
                     })
                     .collect();
-                let submenu_widget = List::new(submenu_items)
-                    .block(Block::bordered().title("Submenu (Esc: back, q, Ctrl+C: quit)"));
-                frame.render_widget(submenu_widget, chunks[1]);
+                let form_list =
+                    List::new(list_items).block(Block::bordered().title(
+                        "Enroll New Employee (Enter: edit field, Ctrl+S: submit, Esc: cancel)",
+                    ));
+                frame.render_widget(form_list, chunks[1]);
+            }
+            AppMode::UpdateForm {
+                employee_id,
+                role_id,
+                active_field,
+                editing,
+            } => {
+                let fields = vec![
+                    format!("Employee ID: {}", employee_id),
+                    format!("Role ID: {}", role_id),
+                ];
+                let list_items: Vec<ListItem> = fields
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, field)| {
+                        let mut style = if i == *active_field {
+                            Style::default().add_modifier(Modifier::REVERSED)
+                        } else {
+                            Style::default()
+                        };
+                        if i == *active_field && *editing {
+                            style = style.add_modifier(Modifier::UNDERLINED);
+                        }
+                        ListItem::new(field).style(style)
+                    })
+                    .collect();
+                let form_list = List::new(list_items).block(
+                    Block::bordered()
+                        .title("Update Employee (Enter: edit field, Ctrl+S: submit, Esc: cancel)"),
+                );
+                frame.render_widget(form_list, chunks[1]);
+            }
+            AppMode::DeleteForm {
+                employee_id,
+                editing,
+            } => {
+                let field = format!("Employee ID: {}", employee_id);
+                let mut style = Style::default();
+                if *editing {
+                    style = style
+                        .add_modifier(Modifier::REVERSED)
+                        .add_modifier(Modifier::UNDERLINED);
+                }
+                let list_item = ListItem::new(field).style(style);
+                let form_list = List::new(vec![list_item]).block(
+                    Block::bordered()
+                        .title("Delete Employee (Enter: edit field, Ctrl+S: submit, Esc: cancel)"),
+                );
+                frame.render_widget(form_list, chunks[1]);
             }
         }
     }
 
-    /// Reads crossterm events and updates the state accordingly.
     fn handle_crossterm_events(&mut self) -> Result<()> {
         match event::read()? {
             Event::Key(key) if key.kind == KeyEventKind::Press => self.on_key_event(key),
@@ -163,23 +237,20 @@ impl App {
         Ok(())
     }
 
-    /// Handles key events for both the main menu and submenu.
     fn on_key_event(&mut self, key: KeyEvent) {
-        // Global quit keys: q or Ctrl+C always quit.
+        // Global quit keys.
         if let KeyCode::Char('q') = key.code {
             self.quit();
             return;
         }
-        if key.modifiers == KeyModifiers::CONTROL
-            && (key.code == KeyCode::Char('c') || key.code == KeyCode::Char('C'))
-        {
+        if key.modifiers == KeyModifiers::CONTROL && (key.code == KeyCode::Char('c')) {
             self.quit();
             return;
         }
 
         match &mut self.mode {
             AppMode::Main => {
-                // In the main menu, Esc also quits.
+                // In the main menu, Esc quits.
                 if key.code == KeyCode::Esc {
                     self.quit();
                     return;
@@ -195,47 +266,218 @@ impl App {
                             self.selected_index += 1;
                         }
                     }
-                    // Enter opens the submenu for the selected main option.
                     KeyCode::Enter => {
-                        self.mode = AppMode::Submenu {
-                            main_index: self.selected_index,
-                            selected_index: 0,
-                        };
+                        // Open the corresponding form.
+                        match self.selected_index {
+                            0 => {
+                                self.mode = AppMode::EnrollForm {
+                                    name: String::new(),
+                                    biometric: String::new(),
+                                    role_id: String::new(),
+                                    location: String::new(),
+                                    active_field: 0,
+                                    editing: false,
+                                };
+                            }
+                            1 => {
+                                self.mode = AppMode::UpdateForm {
+                                    employee_id: String::new(),
+                                    role_id: String::new(),
+                                    active_field: 0,
+                                    editing: false,
+                                };
+                            }
+                            2 => {
+                                self.mode = AppMode::DeleteForm {
+                                    employee_id: String::new(),
+                                    editing: false,
+                                };
+                            }
+                            _ => {}
+                        }
                     }
                     _ => {}
                 }
             }
-            AppMode::Submenu {
-                main_index,
-                selected_index,
+            AppMode::EnrollForm {
+                name,
+                biometric,
+                role_id,
+                location,
+                active_field,
+                editing,
             } => {
-                // In a submenu, Esc returns to the main menu.
-                if key.code == KeyCode::Esc {
-                    self.mode = AppMode::Main;
-                    return;
-                }
-                let submenu_len = self.submenus[*main_index].len();
-                match key.code {
-                    KeyCode::Up | KeyCode::Char('k') => {
-                        if *selected_index > 0 {
-                            *selected_index -= 1;
+                if *editing {
+                    // In editing mode, all keypresses go into the active field.
+                    match key.code {
+                        KeyCode::Enter => {
+                            // Finish editing.
+                            *editing = false;
                         }
+                        KeyCode::Backspace => match *active_field {
+                            0 => {
+                                name.pop();
+                            }
+                            1 => {
+                                biometric.pop();
+                            }
+                            2 => {
+                                role_id.pop();
+                            }
+                            3 => {
+                                location.pop();
+                            }
+                            _ => {}
+                        },
+                        KeyCode::Char(c) => match *active_field {
+                            0 => {
+                                name.push(c);
+                            }
+                            1 => {
+                                biometric.push(c);
+                            }
+                            2 => {
+                                role_id.push(c);
+                            }
+                            3 => {
+                                location.push(c);
+                            }
+                            _ => {}
+                        },
+                        _ => {}
                     }
-                    KeyCode::Down | KeyCode::Char('j') => {
-                        if *selected_index < submenu_len - 1 {
-                            *selected_index += 1;
-                        }
-                    }
-                    // Enter triggers a placeholder action then returns to the main menu.
-                    KeyCode::Enter => {
+                } else {
+                    // Navigation mode.
+                    // Ctrl+S submits the form.
+                    if key.modifiers == KeyModifiers::CONTROL && key.code == KeyCode::Char('s') {
                         println!(
-                            "Selected submenu option: '{}' for main option: '{}'",
-                            self.submenus[*main_index][*selected_index],
-                            self.menu_items[*main_index]
+                            "Enroll Form Submitted: name: {}, biometric: {}, role_id: {}, location: {}",
+                            name, biometric, role_id, location
                         );
                         self.mode = AppMode::Main;
+                        return;
                     }
-                    _ => {}
+                    match key.code {
+                        KeyCode::Enter => {
+                            // Enter toggles editing mode for the active field.
+                            *editing = true;
+                        }
+                        KeyCode::Up | KeyCode::Char('k') => {
+                            if *active_field > 0 {
+                                *active_field -= 1;
+                            }
+                        }
+                        KeyCode::Down | KeyCode::Char('j') => {
+                            if *active_field < 3 {
+                                *active_field += 1;
+                            }
+                        }
+                        KeyCode::Tab => {
+                            *active_field = (*active_field + 1) % 4;
+                        }
+                        KeyCode::Esc => {
+                            self.mode = AppMode::Main;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            AppMode::UpdateForm {
+                employee_id,
+                role_id,
+                active_field,
+                editing,
+            } => {
+                if *editing {
+                    match key.code {
+                        KeyCode::Enter => {
+                            *editing = false;
+                        }
+                        KeyCode::Backspace => match *active_field {
+                            0 => {
+                                employee_id.pop();
+                            }
+                            1 => {
+                                role_id.pop();
+                            }
+                            _ => {}
+                        },
+                        KeyCode::Char(c) => match *active_field {
+                            0 => {
+                                employee_id.push(c);
+                            }
+                            1 => {
+                                role_id.push(c);
+                            }
+                            _ => {}
+                        },
+                        _ => {}
+                    }
+                } else {
+                    if key.modifiers == KeyModifiers::CONTROL && key.code == KeyCode::Char('s') {
+                        println!(
+                            "Update Form Submitted: employee_id: {}, role_id: {}",
+                            employee_id, role_id
+                        );
+                        self.mode = AppMode::Main;
+                        return;
+                    }
+                    match key.code {
+                        KeyCode::Enter => {
+                            *editing = true;
+                        }
+                        KeyCode::Up | KeyCode::Char('k') => {
+                            if *active_field > 0 {
+                                *active_field -= 1;
+                            }
+                        }
+                        KeyCode::Down | KeyCode::Char('j') => {
+                            if *active_field < 1 {
+                                *active_field += 1;
+                            }
+                        }
+                        KeyCode::Tab => {
+                            *active_field = (*active_field + 1) % 2;
+                        }
+                        KeyCode::Esc => {
+                            self.mode = AppMode::Main;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            AppMode::DeleteForm {
+                employee_id,
+                editing,
+            } => {
+                if *editing {
+                    match key.code {
+                        KeyCode::Enter => {
+                            *editing = false;
+                        }
+                        KeyCode::Backspace => {
+                            employee_id.pop();
+                        }
+                        KeyCode::Char(c) => {
+                            employee_id.push(c);
+                        }
+                        _ => {}
+                    }
+                } else {
+                    if key.modifiers == KeyModifiers::CONTROL && key.code == KeyCode::Char('s') {
+                        println!("Delete Form Submitted: employee_id: {}", employee_id);
+                        self.mode = AppMode::Main;
+                        return;
+                    }
+                    match key.code {
+                        KeyCode::Enter => {
+                            *editing = true;
+                        }
+                        KeyCode::Esc => {
+                            self.mode = AppMode::Main;
+                        }
+                        _ => {}
+                    }
                 }
             }
         }
@@ -244,4 +486,8 @@ impl App {
     fn quit(&mut self) {
         self.running = false;
     }
+}
+
+fn main() -> Result<()> {
+    App::new().run()
 }
