@@ -1,7 +1,10 @@
 /****************
     IMPORTS
 ****************/
-use common::{CheckpointReply, CheckpointRequest, CheckpointState, Lcd, LCD_LINE_1, LCD_LINE_2};
+use common::{
+    App, CheckpointReply, CheckpointRequest, CheckpointState, Lcd, Submission, LCD_LINE_1,
+    LCD_LINE_2,
+};
 use std::collections::HashMap;
 use std::env;
 use std::io::{BufRead, BufReader, Read, Write};
