@@ -46,7 +46,7 @@ fn get_fingerprint() -> Option<u32> {
     let start_time = Instant::now();
     while start_time.elapsed() < TIMEOUT {
         let output = Command::new("python3")
-            .arg("fingerprint.py")
+            .arg("fpm.py")
             .output()
             .expect("Failed to execute fingerprint script");
 
