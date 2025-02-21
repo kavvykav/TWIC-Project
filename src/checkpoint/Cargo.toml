@@ -13,5 +13,4 @@ common = { path = "../common" }
 pyo3 = { version = "0.21", features = ["extension-module"] }
 rand = "0.8"
 tokio = { version = "1", features = ["full"] }
-lcd = "0.2"
 rppal = "0.14"
