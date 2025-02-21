@@ -1,46 +1,21 @@
-/****************
-    IMPORTS
-****************/
-use serialport::{self, DataBits, Parity, StopBits, FlowControl};
-use std::io::{Write};
-use std::time::Duration;
+use std::process::Command;
+use std::str;
 
-/*
- * Name: read_rfid
- * Function: Serves as the handler for the RFID reader
- */
-pub fn read_rfid(port_name: &str, baud_rate: u32) -> Result<String, String> {
-    // Open the serial port and configure it
-    let mut port = serialport::new(port_name, baud_rate)
-        .timeout(Duration::from_secs(10)) // Timeout after 10 seconds
-        .data_bits(DataBits::Eight)
-        .parity(Parity::None)
-        .stop_bits(StopBits::One)
-        .flow_control(FlowControl::None)
-        .open()
-        .map_err(|e| format!("Failed to open serial port: {}", e))?;
+pub fn scan_rfid() -> Result<String, String> {
+    let output = Command::new("python3").arg("/path/to/rfid.py").output();
 
-    println!("Connected to RFID reader on {}", port_name);
-
-    // Send a command to the RFID reader (optional, depends on your module)
-    let read_command: [u8; 2] = [0x02, 0x20]; // Replace with actual command for your module
-    port.write_all(&read_command)
-        .map_err(|e| format!("Failed to send read command: {}", e))?;
-    println!("Read command sent. Waiting for RFID tag...");
-
-    // Wait and read RFID data
-    let mut buffer = vec![0; 128]; // Adjust size based on expected tag length
-    let bytes_read = port
-        .read(&mut buffer)
-        .map_err(|e| format!("Failed to read RFID data: {}", e))?;
-
-    // Parse the RFID data
-    if bytes_read > 0 {
-        buffer.truncate(bytes_read); // Remove unused part of the buffer
-        let tag_id = String::from_utf8(buffer)
-            .map_err(|_| "Failed to parse RFID data as UTF-8.".to_string())?;
-        Ok(tag_id)
-    } else {
-        Err("No RFID data received.".to_string())
+    match output {
+        Ok(output) => {
+            let result = str::from_utf8(&output.stdout)
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            if result == "ERROR" {
+                Err("Failed to read RFID".to_string())
+            } else {
+                Ok(result)
+            }
+        }
+        Err(_) => Err("Failed to execute RFID script".to_string()),
     }
 }
