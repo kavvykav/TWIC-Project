@@ -1,3 +1,4 @@
+import sys
 import time
 
 import adafruit_fingerprint as adafp
@@ -16,12 +17,14 @@ def get_fp():
     if fpm.image_2_tz(1) != adafp.OK:
         print("Error coverting Image")
         return
+    # TODO add some return value other than NULL (I THINK)
 
     if fpm.finger_search() == adafp.OK:
+        fp_id = fpm.finger_id
         print(
             f"Fingerprint Match! ID: {fpm.finger_id} with {fpm.confidence} confidence"
-            return fpm.finger_id
         )
+        return fp_id
     else:
         print("No Match Found")
 
@@ -54,11 +57,9 @@ def enroll_fp(fp_id):
 if __name__ == "__main__":
     print("Enter 1 for Scan, 2 for Registration...")
 
-    choice = input("Simple option: ")
-
-    if choice == "1":
+    if sys.argv[1] == "1":
         get_fp()
-    elif choice == "2":
+    elif sys.argv[1] == "2":
         fp_id = int(input("enter an ID (1-127): "))
         enroll_fp(fp_id)
     else:

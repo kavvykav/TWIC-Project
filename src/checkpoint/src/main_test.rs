@@ -32,10 +32,10 @@ fn get_rfid() -> Option<String> {
 
         if output.status.success() {
             let output_str = String::from_utf8_lossy(&output.stdout);
-            for line in output_str.lines() {
-                if line.starts_with("RFID Tag ID:") {
-                    return line.split(':').nth(1).map(|s| s.trim().to_string());
-                }
+            let lines: Vec<&str> = output_str.lines().collect();
+
+            if let Some(last_line) = lines.last() {
+                return last_line.parse().ok(); // Directly parse ID
             }
         }
     }
@@ -46,19 +46,17 @@ fn get_fingerprint() -> Option<u32> {
     let start_time = Instant::now();
     while start_time.elapsed() < TIMEOUT {
         let output = Command::new("python3")
-            .arg("fpm.py")
+            .arg("fpm.py 1")
+            .arg("1")
             .output()
             .expect("Failed to execute fingerprint script");
 
         if output.status.success() {
             let output_str = String::from_utf8_lossy(&output.stdout);
-            for line in output_str.lines() {
-                if line.contains("Fingerprint Match! ID:") {
-                    return line
-                        .split_whitespace()
-                        .nth(3)
-                        .and_then(|id| id.parse().ok());
-                }
+            let lines: Vec<&str> = output_str.lines().collect();
+
+            if let Some(last_line) = lines.last() {
+                return last_line.parse().ok(); // Directly parse ID
             }
         }
     }
