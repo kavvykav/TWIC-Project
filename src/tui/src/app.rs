@@ -2,7 +2,7 @@ use color_eyre::Result;
 use crossterm::{
     event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers},
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode},
+    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use ratatui::{
     backend::CrosstermBackend,
@@ -91,7 +91,9 @@ impl App {
     /// is stored and the TUI quits. This method then returns the submission (if any).
     pub fn run(mut self) -> Result<Option<Submission>> {
         enable_raw_mode()?;
-        let stdout = io::stdout();
+        let mut stdout = io::stdout();
+        // Enter the alternate screen so the TUI uses a separate buffer.
+        execute!(stdout, EnterAlternateScreen)?;
         let backend = CrosstermBackend::new(stdout);
         let mut terminal = Terminal::new(backend)?;
 
@@ -102,7 +104,8 @@ impl App {
         }
 
         disable_raw_mode()?;
-        execute!(io::stdout(), crossterm::terminal::LeaveAlternateScreen)?;
+        // Leave the alternate screen to restore the original terminal.
+        execute!(io::stdout(), LeaveAlternateScreen)?;
         Ok(self.submission)
     }
 
@@ -126,7 +129,7 @@ impl App {
             }
         };
 
-        // Create a layout: header area (Length 5) and the rest for content.
+        // Allocate a header area (Length 5) and the rest for content.
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .margin(1)
