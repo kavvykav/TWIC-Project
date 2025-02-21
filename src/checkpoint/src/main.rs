@@ -203,7 +203,8 @@ fn main() {
         // Functionalities at the checkpoint side
         if let Some(function) = args.get(1) {
             match function.as_str() {
-                "enroll" => {
+                "tui" => {
+                    // TODO: make this call the tui and parse the return structure
                     println!("Please give your name");
 
                     lcd.display_string("Enter Name", LCD_LINE_1);
@@ -260,89 +261,6 @@ fn main() {
                         lcd.display_string("Error!", LCD_LINE_1);
                         thread::sleep(Duration::from_secs(5));
                         lcd.clear();
-                        return;
-                    }
-                }
-                "update" => {
-                    println!("Please give your ID");
-
-                    lcd.display_string("Please Scan", LCD_LINE_1);
-                    lcd.display_string("your card", LCD_LINE_2);
-                    thread::sleep(Duration::from_secs(2));
-                    lcd.clear();
-
-                    let worker_id = 1;
-                    let new_role_id = 3;
-                    let new_location = "Halifax".to_string();
-
-                    // Construct request structure
-                    let update_req = CheckpointRequest::update_req(
-                        checkpoint_id,
-                        worker_id,
-                        new_role_id,
-                        new_location,
-                    );
-
-                    // Send request and receive response
-                    let update_reply = send_and_receive(
-                        &mut stream,
-                        &update_req,
-                        Arc::clone(&pending_requests),
-                        admin_id,
-                    );
-
-                    // Error check
-                    if update_reply.status == "success".to_string() {
-                        println!("User updated successfully!");
-                        lcd.display_string("Updated", LCD_LINE_1);
-                        lcd.display_string("Successfully!", LCD_LINE_2);
-                        thread::sleep(Duration::from_secs(5));
-                        lcd.clear();
-                        return;
-                    } else {
-                        println!("Error with updating the user");
-                        lcd.display_string("Error", LCD_LINE_1);
-                        thread::sleep(Duration::from_secs(5));
-                        lcd.clear();
-                        return;
-                    }
-                }
-
-                "delete" => {
-                    println!("Please give your ID");
-
-                    lcd.display_string("Please Scan", LCD_LINE_1);
-                    lcd.display_string("your card", LCD_LINE_2);
-                    thread::sleep(Duration::from_secs(2));
-                    lcd.clear();
-
-                    let worker_id = 1;
-
-                    // Construct request structure
-                    let delete_req = CheckpointRequest::delete_req(checkpoint_id, worker_id);
-
-                    // Send request and receive response
-                    let delete_reply = send_and_receive(
-                        &mut stream,
-                        &delete_req,
-                        Arc::clone(&pending_requests),
-                        admin_id,
-                    );
-
-                    // Error check
-                    if delete_reply.status == "success".to_string() {
-                        println!("User deleted successfully!");
-                        lcd.display_string("Deleted", LCD_LINE_1);
-                        lcd.display_string("Successfully!", LCD_LINE_2);
-                        thread::sleep(Duration::from_secs(5));
-                        lcd.clear();
-                        return;
-                    } else {
-                        println!("Error with deleting the user");
-                        lcd.display_string("Error", LCD_LINE_1);
-                        thread::sleep(Duration::from_secs(5));
-                        lcd.clear();
-
                         return;
                     }
                 }
