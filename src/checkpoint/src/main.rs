@@ -249,7 +249,7 @@ fn main() {
                                     let role_id = role_id.parse::<u32>().unwrap_or(0);
                                     let employee_id = employee_id.parse::<u32>().unwrap_or(0);
         
-                                    let update_req = CheckpointRequest::update_req(employee_id, role_id);
+                                    let update_req = CheckpointRequest::update_req(checkpoint_id, employee_id, role_id, location.clone());
         
                                     let update_reply = send_and_receive(
                                         &mut stream,
@@ -269,8 +269,8 @@ fn main() {
                                 Submission::Delete { employee_id } => {
                                     let employee_id = employee_id.parse::<u32>().unwrap_or(0);
         
-                                    let delete_req = CheckpointRequest::delete_req(employee_id);
-        
+                                    let delete_req = CheckpointRequest::delete_req(checkpoint_id, employee_id);
+
                                     let delete_reply = send_and_receive(
                                         &mut stream,
                                         &delete_req,
