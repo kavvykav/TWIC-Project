@@ -42,7 +42,7 @@ pub enum CheckpointState {
     AuthFailed,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct CheckpointReply {
     pub status: String,
     pub checkpoint_id: Option<u32>,
@@ -52,7 +52,7 @@ pub struct CheckpointReply {
     pub auth_response: Option<CheckpointState>,
 }
 
-#[derive(Serialize, Clone, Deserialize)]
+#[derive(Serialize, Clone, Deserialize, Debug)]
 pub struct CheckpointRequest {
     pub command: String,
     pub checkpoint_id: Option<u32>,
@@ -200,7 +200,7 @@ pub const SERVER_ADDR: &str = "127.0.0.1:8080";
 pub const DATABASE_ADDR: &str = "127.0.0.1:3036";
 
 // Client structure for a port server to manage checkpoints
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Client {
     pub id: usize,
     pub stream: Arc<Mutex<TcpStream>>,
@@ -208,7 +208,7 @@ pub struct Client {
 }
 
 // Format for requests to the Database
-#[derive(Deserialize, Serialize, Clone)]
+#[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct DatabaseRequest {
     pub command: String,
     pub checkpoint_id: Option<u32>,

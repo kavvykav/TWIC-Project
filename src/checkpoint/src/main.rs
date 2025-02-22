@@ -282,7 +282,7 @@ fn main() {
                                         println!("User deleted successfully!");
                                         lcd.display_string("Deleted", LCD_LINE_1);
                                     } else {
-                                        eprintln!("Error Deleting user: {:?}", update_reply); // Debug log
+                                        eprintln!("Error Deleting user: {:?}", delete_reply); // Debug log
                                         lcd.display_string("Error!", LCD_LINE_1);
                                     }
                                 }
