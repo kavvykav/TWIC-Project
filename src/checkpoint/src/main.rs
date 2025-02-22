@@ -204,66 +204,97 @@ fn main() {
         if let Some(function) = args.get(1) {
             match function.as_str() {
                 "tui" => {
-                    // TODO: make this call the tui and parse the return structure
-                    println!("Please give your name");
-
-                    lcd.display_string("Enter Name", LCD_LINE_1);
-                    thread::sleep(Duration::from_secs(5));
-                    lcd.clear();
-
-                    let worker_name = "Jim Bob".to_string();
-                    println!("Please enter your role");
-
-                    lcd.display_string("Enter Role", LCD_LINE_1);
-                    thread::sleep(Duration::from_secs(5));
-                    lcd.clear();
-
-                    let role_id = 2;
-                    println!("Please scan your fingerprint");
-
-                    lcd.display_string("Enter Your", LCD_LINE_1);
-                    lcd.display_string("Fingerprint", LCD_LINE_2);
-                    thread::sleep(Duration::from_secs(5));
-                    lcd.clear();
-
-                    let worker_fingerprint = "dummy fingerprint".to_string();
-
-                    // Construct enroll request
-                    let enroll_req = CheckpointRequest::enroll_req(
-                        checkpoint_id,
-                        worker_name,
-                        worker_fingerprint,
-                        location,
-                        role_id,
-                    );
-
-                    // Send and receive the response
-                    let enroll_reply = send_and_receive(
-                        &mut stream,
-                        &enroll_req,
-                        Arc::clone(&pending_requests.clone()),
-                        admin_id,
-                    );
-                    lcd.display_string("Enrolling...", LCD_LINE_1);
-                    thread::sleep(Duration::from_secs(5));
-                    lcd.clear();
-
-                    // Error check
-                    if enroll_reply.status == "success".to_string() {
-                        println!("User enrolled successfully!");
-                        lcd.display_string("Enrolled", LCD_LINE_1);
-                        lcd.display_string("Successfully!", LCD_LINE_2);
-                        thread::sleep(Duration::from_secs(5));
-                        lcd.clear();
-                        return;
-                    } else {
-                        println!("Error with enrolling the user");
-                        lcd.display_string("Error!", LCD_LINE_1);
-                        thread::sleep(Duration::from_secs(5));
-                        lcd.clear();
-                        return;
+                    // Call the TUI
+                    match common::App::new().run() {
+                        Ok(Some(submission)) => {
+                            match submission {
+                                Submission::Enroll {
+                                    name,
+                                    biometric,
+                                    role_id,
+                                    location,
+                                } => {
+                                    let role_id = role_id.parse::<u32>().unwrap_or(0);
+        
+                                    let enroll_req = CheckpointRequest::enroll_req(
+                                        checkpoint_id,
+                                        name,
+                                        biometric,
+                                        location,
+                                        role_id,
+                                    );
+        
+                                    let enroll_reply = send_and_receive(
+                                        &mut stream,
+                                        &enroll_req,
+                                        Arc::clone(&pending_requests.clone()),
+                                        admin_id,
+                                    );
+        
+                                    if enroll_reply.status == "success" {
+                                        println!("User enrolled successfully!");
+                                        lcd.display_string("Enrolled", LCD_LINE_1);
+                                        lcd.display_string("Successfully!", LCD_LINE_2);
+                                    } else {
+                                        println!("Error with enrolling the user");
+                                        lcd.display_string("Error!", LCD_LINE_1);
+                                    }
+                                }
+                                Submission::Update {
+                                    employee_id,
+                                    role_id,
+                                } => {
+                                    let role_id = role_id.parse::<u32>().unwrap_or(0);
+                                    let employee_id = employee_id.parse::<u32>().unwrap_or(0);
+        
+                                    let update_req = CheckpointRequest::update_req(employee_id, role_id);
+        
+                                    let update_reply = send_and_receive(
+                                        &mut stream,
+                                        &update_req,
+                                        Arc::clone(&pending_requests.clone()),
+                                        admin_id,
+                                    );
+        
+                                    if update_reply.status == "success" {
+                                        println!("User updated successfully!");
+                                        lcd.display_string("Updated", LCD_LINE_1);
+                                    } else {
+                                        println!("Error updating the user");
+                                        lcd.display_string("Error!", LCD_LINE_1);
+                                    }
+                                }
+                                Submission::Delete { employee_id } => {
+                                    let employee_id = employee_id.parse::<u32>().unwrap_or(0);
+        
+                                    let delete_req = CheckpointRequest::delete_req(employee_id);
+        
+                                    let delete_reply = send_and_receive(
+                                        &mut stream,
+                                        &delete_req,
+                                        Arc::clone(&pending_requests.clone()),
+                                        admin_id,
+                                    );
+        
+                                    if delete_reply.status == "success" {
+                                        println!("User deleted successfully!");
+                                        lcd.display_string("Deleted", LCD_LINE_1);
+                                    } else {
+                                        println!("Error deleting the user");
+                                        lcd.display_string("Error!", LCD_LINE_1);
+                                    }
+                                }
+                            }
+                        }
+                        Ok(None) => {
+                            println!("TUI was exited without submission.");
+                        }
+                        Err(e) => {
+                            eprintln!("TUI encountered an error: {}", e);
+                        }
                     }
                 }
+        
                 "authenticate" => {
                     // Polling loop used to authenticate user
                     loop {
