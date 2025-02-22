@@ -185,6 +185,8 @@ fn main() {
 
     let init_reply: CheckpointReply =
         send_and_receive(&mut stream, &init_req, pending_requests.clone(), admin_id);
+    println!("DEBUG: checkpoint_id received = {:?}", init_reply.checkpoint_id);
+
 
     if init_reply.status == "error" {
         eprintln!("Error with registering the checkpoint");
@@ -319,11 +321,9 @@ fn main() {
                         println!("Validating card...");
                         lcd.display_string("Validating", LCD_LINE_1);
 
-                        let location = if is_admin {
-                            "AdminSystem".to_string()
-                        } else {
-                            location.clone()
-                        };
+                        let location = location.clone();
+
+
                         let rfid_auth_req =
                             CheckpointRequest::rfid_auth_request(checkpoint_id, worker_id);
                         let auth_reply: CheckpointReply = send_and_receive(
