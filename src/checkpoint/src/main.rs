@@ -34,6 +34,7 @@ fn send_and_receive(
     pending_requests: Arc<Mutex<HashMap<String, u32>>>,
     admin_id: u32,
 ) -> CheckpointReply {
+    println!("Sending request: {:?}", request); // Debug log
     let request_key = format!(
         "{}_{}_{}",
         request.command,
@@ -207,6 +208,7 @@ fn main() {
                     // Call the TUI
                     match common::App::new().run() {
                         Ok(Some(submission)) => {
+                            println!("TUI Submission received: {:?}", submission);
                             match submission {
                                 Submission::Enroll {
                                     name,
@@ -232,11 +234,11 @@ fn main() {
                                     );
         
                                     if enroll_reply.status == "success" {
-                                        println!("User enrolled successfully!");
+                                        println!("User enrolled successfully");
                                         lcd.display_string("Enrolled", LCD_LINE_1);
-                                        lcd.display_string("Successfully!", LCD_LINE_2);
+                                        lcd.display_string("Successfully", LCD_LINE_2);
                                     } else {
-                                        println!("Error with enrolling the user");
+                                        eprintln!("Error enrolling user: {:?}", enroll_reply); // Debug log
                                         lcd.display_string("Error!", LCD_LINE_1);
                                     }
                                 }
@@ -257,10 +259,10 @@ fn main() {
                                     );
         
                                     if update_reply.status == "success" {
-                                        println!("User updated successfully!");
+                                        println!("User updated successfully");
                                         lcd.display_string("Updated", LCD_LINE_1);
                                     } else {
-                                        println!("Error updating the user");
+                                        eprintln!("Error updating user: {:?}", update_reply); // Debug log
                                         lcd.display_string("Error!", LCD_LINE_1);
                                     }
                                 }
@@ -280,7 +282,7 @@ fn main() {
                                         println!("User deleted successfully!");
                                         lcd.display_string("Deleted", LCD_LINE_1);
                                     } else {
-                                        println!("Error deleting the user");
+                                        eprintln!("Error Deleting user: {:?}", update_reply); // Debug log
                                         lcd.display_string("Error!", LCD_LINE_1);
                                     }
                                 }
@@ -326,6 +328,7 @@ fn main() {
                         );
 
                         if let Some(CheckpointState::AuthFailed) = auth_reply.auth_response {
+                            eprintln!("RFID Authentication failed: {:?}", auth_reply); // Debug log
                             println!("Authentication failed.");
                             lcd.clear();
                             lcd.display_string("Access Denied", LCD_LINE_1);
@@ -358,6 +361,7 @@ fn main() {
                         if let Some(CheckpointState::AuthFailed) =
                             fingerprint_auth_reply.auth_response
                         {
+                            eprintln!("Fingerprint Authentication failed: {:?}", fingerprint_auth_reply); // Debug log
                             println!("Authentication failed.");
                             lcd.clear();
                             lcd.display_string("Access Denied", LCD_LINE_1);
