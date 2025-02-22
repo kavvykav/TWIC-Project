@@ -217,7 +217,7 @@ fn main() {
                                     location,
                                 } => {
                                     let role_id = role_id.parse::<u32>().unwrap_or(0);
-        
+
                                     let enroll_req = CheckpointRequest::enroll_req(
                                         checkpoint_id,
                                         name,
@@ -225,14 +225,14 @@ fn main() {
                                         location,
                                         role_id,
                                     );
-        
+
                                     let enroll_reply = send_and_receive(
                                         &mut stream,
                                         &enroll_req,
                                         Arc::clone(&pending_requests.clone()),
                                         admin_id,
                                     );
-        
+
                                     if enroll_reply.status == "success" {
                                         println!("User enrolled successfully");
                                         lcd.display_string("Enrolled", LCD_LINE_1);
@@ -248,16 +248,21 @@ fn main() {
                                 } => {
                                     let role_id = role_id.parse::<u32>().unwrap_or(0);
                                     let employee_id = employee_id.parse::<u32>().unwrap_or(0);
-        
-                                    let update_req = CheckpointRequest::update_req(checkpoint_id, employee_id, role_id, location.clone());
-        
+
+                                    let update_req = CheckpointRequest::update_req(
+                                        checkpoint_id,
+                                        employee_id,
+                                        role_id,
+                                        location.clone(),
+                                    );
+
                                     let update_reply = send_and_receive(
                                         &mut stream,
                                         &update_req,
                                         Arc::clone(&pending_requests.clone()),
                                         admin_id,
                                     );
-        
+
                                     if update_reply.status == "success" {
                                         println!("User updated successfully");
                                         lcd.display_string("Updated", LCD_LINE_1);
@@ -268,8 +273,9 @@ fn main() {
                                 }
                                 Submission::Delete { employee_id } => {
                                     let employee_id = employee_id.parse::<u32>().unwrap_or(0);
-        
-                                    let delete_req = CheckpointRequest::delete_req(checkpoint_id, employee_id);
+
+                                    let delete_req =
+                                        CheckpointRequest::delete_req(checkpoint_id, employee_id);
 
                                     let delete_reply = send_and_receive(
                                         &mut stream,
@@ -277,7 +283,7 @@ fn main() {
                                         Arc::clone(&pending_requests.clone()),
                                         admin_id,
                                     );
-        
+
                                     if delete_reply.status == "success" {
                                         println!("User deleted successfully!");
                                         lcd.display_string("Deleted", LCD_LINE_1);
@@ -296,7 +302,7 @@ fn main() {
                         }
                     }
                 }
-        
+
                 "authenticate" => {
                     // Polling loop used to authenticate user
                     loop {
@@ -361,7 +367,10 @@ fn main() {
                         if let Some(CheckpointState::AuthFailed) =
                             fingerprint_auth_reply.auth_response
                         {
-                            eprintln!("Fingerprint Authentication failed: {:?}", fingerprint_auth_reply); // Debug log
+                            eprintln!(
+                                "Fingerprint Authentication failed: {:?}",
+                                fingerprint_auth_reply
+                            ); // Debug log
                             println!("Authentication failed.");
                             lcd.clear();
                             lcd.display_string("Access Denied", LCD_LINE_1);
