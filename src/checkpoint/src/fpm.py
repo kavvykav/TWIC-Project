@@ -10,13 +10,14 @@ fpm = adafp.Adafruit_Fingerprint(uart)
 
 def get_fp():
     print("Place finger on Sensor...")
+    rc = -1
 
     while fpm.get_image() != adafp.OK:
         pass
 
     if fpm.image_2_tz(1) != adafp.OK:
         print("Error coverting Image")
-        return
+        return -1
     # TODO add some return value other than NULL (I THINK)
 
     if fpm.finger_search() == adafp.OK:
@@ -24,13 +25,16 @@ def get_fp():
         print(
             f"Fingerprint Match! ID: {fpm.finger_id} with {fpm.confidence} confidence"
         )
-        return fp_id
+        rc = fp_id
+        return rc
     else:
-        print("No Match Found")
+        # No Match Found
+        return rc
 
 
 def enroll_fp(fp_id):
     print(f"Enrolling fingerprint for ID {fp_id}. Place finger on sensor")
+    rc = -1
 
     for i in range(1, 3):
         while fpm.get_image() != adafp.OK:
@@ -38,20 +42,22 @@ def enroll_fp(fp_id):
 
         if fpm.image_2_tz(i) != adafp.OK:
             print("Error processing finger Image")
-            return
+            return rc
         if i == 1:
             print("Remove finger and press again")
             time.sleep(2)
 
     if fpm.create_model() != adafp.OK:
         print("Template did not match")
-        return
+        return rc
 
     if fpm.store_model(fp_id) == adafp.OK:
         print("Template registered with ID: {fp_id}")
-        return fp_id
+        rc = fp_id
+        return rc
     else:
-        print("Registration failed")
+        # Registration failed
+        return rc
 
 
 if __name__ == "__main__":

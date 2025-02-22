@@ -22,7 +22,7 @@ const RFID_PORT: &str = "/dev/ttyUSB0";
 const FINGERPRINT_PORT: &str = "/dev/ttyUSB1";
 const BAUD_RATE: u32 = 9600;
 
-fn get_rfid() -> Option<String> {
+fn read_rfid() -> Option<String> {
     let start_time = Instant::now();
     while start_time.elapsed() < TIMEOUT {
         let output = Command::new("python3")
@@ -42,7 +42,28 @@ fn get_rfid() -> Option<String> {
     None
 }
 
-fn get_fingerprint() -> Option<u32> {
+fn write_rfid() -> Option<String> {
+    let start_time = Instant::now();
+    while start_time.elapsed() < TIMEOUT {
+        let output = Command::new("python3")
+            .arg("rfid.py")
+            .arg("1")
+            .output()
+            .expect("Failed to execute RFID script");
+
+        if output.status.success() {
+            let output_str = String::from_utf8_lossy(&output.stdout);
+            let lines: Vec<&str> = output_str.lines().collect();
+
+            if let Some(last_line) = lines.last() {
+                return last_line.parse().ok(); // Directly parse ID
+            }
+        }
+    }
+    None
+}
+
+fn read_fpm() -> Option<u32> {
     let start_time = Instant::now();
     while start_time.elapsed() < TIMEOUT {
         let output = Command::new("python3")
@@ -57,6 +78,28 @@ fn get_fingerprint() -> Option<u32> {
 
             if let Some(last_line) = lines.last() {
                 return last_line.parse().ok(); // Directly parse ID
+            }
+        }
+    }
+    None
+}
+
+fn reg_fpm() -> Option<u32> {
+    let start_time = Instant::now();
+    while start_time.elapsed() < TIMEOUT {
+        let output = Command::new("python3")
+            .arg("fpm.py 1")
+            .arg("2")
+            .arg("64") //ID to write (placeholder)
+            .output()
+            .expect("Failed to execute fingerprint script");
+
+        if output.status.success() {
+            let output_str = String::from_utf8_lossy(&output.stdout);
+            let lines: Vec<&str> = output_str.lines().collect();
+
+            if let Some(last_line) = lines.last() {
+                return last_line.parse().ok();
             }
         }
     }
@@ -172,6 +215,8 @@ fn init_lcd() -> Option<Lcd> {
 /*
  * Name: main
  * Function: serves as the main checkpoint logic
+ *
+ * NOTE: Current prototype calls hw fns directly
  */
 
 fn main() {

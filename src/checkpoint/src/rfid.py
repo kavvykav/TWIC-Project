@@ -8,6 +8,7 @@ from mfrc522 import SimpleMFRC522
 
 def write_rfid():
     r = SimpleMFRC522()
+    rc = -1
 
     def id_generator(size=5, chars=string.ascii_uppercase + string.digits):
         return "".join(random.choice(chars) for _ in range(size))
@@ -16,18 +17,18 @@ def write_rfid():
         data = id_generator()
         print("Data for rfid is: ", data)
         r.write(data)
-        print("Write complete")
-        return True
+        rc = data
+        return rc
     except Exception as e:
         print(f"error: {e}")
-        return False
+        return rc
     finally:
-        print("Cleaning up...")
         gpio.cleanup()
 
 
 def read_rfid():
     r = SimpleMFRC522()
+    rc = -1
 
     try:
         print("Place RFID tag near reader")
@@ -37,9 +38,8 @@ def read_rfid():
         return data
     except Exception as e:
         print(f"Error: {e}")
-        return None
+        return rc
     finally:
-        print("Cleaning up...")
         gpio.cleanup()
 
 

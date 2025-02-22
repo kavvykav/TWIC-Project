@@ -6,12 +6,14 @@ use std::collections::HashMap;
 use std::env;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
+use std::process::Command;
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 mod fingerprint;
 mod rfid;
+const TIMEOUT: Duration = Duration::from_secs(30);
 
 /****************
     CONSTANTS
@@ -19,6 +21,90 @@ mod rfid;
 const RFID_PORT: &str = "/dev/ttyUSB0";
 const FINGERPRINT_PORT: &str = "/dev/ttyUSB1";
 const BAUD_RATE: u32 = 9600;
+
+fn read_rfid() -> Option<String> {
+    let start_time = Instant::now();
+    while start_time.elapsed() < TIMEOUT {
+        let output = Command::new("python3")
+            .arg("rfid.py")
+            .output()
+            .expect("Failed to execute RFID script");
+
+        if output.status.success() {
+            let output_str = String::from_utf8_lossy(&output.stdout);
+            let lines: Vec<&str> = output_str.lines().collect();
+
+            if let Some(last_line) = lines.last() {
+                return last_line.parse().ok(); // Directly parse ID
+            }
+        }
+    }
+    None
+}
+
+fn write_rfid() -> Option<String> {
+    let start_time = Instant::now();
+    while start_time.elapsed() < TIMEOUT {
+        let output = Command::new("python3")
+            .arg("rfid.py")
+            .arg("1")
+            .output()
+            .expect("Failed to execute RFID script");
+
+        if output.status.success() {
+            let output_str = String::from_utf8_lossy(&output.stdout);
+            let lines: Vec<&str> = output_str.lines().collect();
+
+            if let Some(last_line) = lines.last() {
+                return last_line.parse().ok(); // Directly parse ID
+            }
+        }
+    }
+    None
+}
+
+fn read_fpm() -> Option<u32> {
+    let start_time = Instant::now();
+    while start_time.elapsed() < TIMEOUT {
+        let output = Command::new("python3")
+            .arg("fpm.py 1")
+            .arg("1")
+            .output()
+            .expect("Failed to execute fingerprint script");
+
+        if output.status.success() {
+            let output_str = String::from_utf8_lossy(&output.stdout);
+            let lines: Vec<&str> = output_str.lines().collect();
+
+            if let Some(last_line) = lines.last() {
+                return last_line.parse().ok(); // Directly parse ID
+            }
+        }
+    }
+    None
+}
+
+fn reg_fpm() -> Option<u32> {
+    let start_time = Instant::now();
+    while start_time.elapsed() < TIMEOUT {
+        let output = Command::new("python3")
+            .arg("fpm.py 1")
+            .arg("2")
+            .arg("64") //ID to write (placeholder)
+            .output()
+            .expect("Failed to execute fingerprint script");
+
+        if output.status.success() {
+            let output_str = String::from_utf8_lossy(&output.stdout);
+            let lines: Vec<&str> = output_str.lines().collect();
+
+            if let Some(last_line) = lines.last() {
+                return last_line.parse().ok();
+            }
+        }
+    }
+    None
+}
 
 /*
  * Name: send_and_receive
@@ -129,10 +215,11 @@ fn init_lcd() -> Option<Lcd> {
 /*
  * Name: main
  * Function: serves as the main checkpoint logic
+ *
+ * NOTE: Current prototype calls hw fns directly
  */
+
 fn main() {
-    // Parse command line arguments to get the port location and roles that this
-    // checkpoint allows
     let pending_requests: Arc<Mutex<HashMap<String, u32>>> = Arc::new(Mutex::new(HashMap::new()));
     let args: Vec<String> = env::args().collect();
     if args.len() < 4 {
@@ -142,19 +229,14 @@ fn main() {
         return;
     }
 
-    // Get location of the checkpoint
     let location = args.get(2).unwrap().to_string();
-
-    // Get authorized roles for this checkpoint
     let authorized_roles = args[3..].to_vec().join(",");
 
-    // Initialize LCD
     let lcd = match init_lcd() {
         Some(lcd) => lcd,
-        None => return, // Exit if LCD initialization fails
+        None => return,
     };
 
-    // Connect to Port Server
     let mut stream = match TcpStream::connect("127.0.0.1:8080") {
         Ok(stream) => {
             println!("Connected to Server!");
@@ -173,12 +255,10 @@ fn main() {
         }
     };
 
-    let admin_id = 1; // Example admin ID
-    let is_admin = true; // Example admin status
+    let admin_id = 1;
+    let is_admin = true;
 
-    // Send an init request to register in the database
     let init_req = CheckpointRequest::init_request(location.clone(), authorized_roles);
-
     let init_reply: CheckpointReply =
         send_and_receive(&mut stream, &init_req, pending_requests.clone(), admin_id);
 
@@ -190,239 +270,60 @@ fn main() {
         return;
     }
 
-    println!(
-        "Got an ID assigned by the central database: {}",
-        init_reply.checkpoint_id.unwrap_or(0)
-    );
-
-    // Store ID
     if let Some(checkpoint_id) = init_reply.checkpoint_id {
-        // Functionalities at the checkpoint side
         if let Some(function) = args.get(1) {
             match function.as_str() {
-                "enroll" => {
-                    println!("Please give your name");
+                "authenticate" => loop {
+                    lcd.display_string("Scan RFID", LCD_LINE_1);
+                    if let Some(worker_id) = get_rfid() {
+                        lcd.display_string("Validating...", LCD_LINE_1);
 
-                    lcd.display_string("Enter Name", LCD_LINE_1);
-                    thread::sleep(Duration::from_secs(5));
-                    lcd.clear();
-
-                    let worker_name = "Jim Bob".to_string();
-                    println!("Please enter your role");
-
-                    lcd.display_string("Enter Role", LCD_LINE_1);
-                    thread::sleep(Duration::from_secs(5));
-                    lcd.clear();
-
-                    let role_id = 2;
-                    println!("Please scan your fingerprint");
-
-                    lcd.display_string("Enter Your", LCD_LINE_1);
-                    lcd.display_string("Fingerprint", LCD_LINE_2);
-                    thread::sleep(Duration::from_secs(5));
-                    lcd.clear();
-
-                    let worker_fingerprint = "dummy fingerprint".to_string();
-
-                    // Construct enroll request
-                    let enroll_req = CheckpointRequest::enroll_req(
-                        checkpoint_id,
-                        worker_name,
-                        worker_fingerprint,
-                        location,
-                        role_id,
-                    );
-
-                    // Send and receive the response
-                    let enroll_reply = send_and_receive(
-                        &mut stream,
-                        &enroll_req,
-                        Arc::clone(&pending_requests.clone()),
-                        admin_id,
-                    );
-                    lcd.display_string("Enrolling...", LCD_LINE_1);
-                    thread::sleep(Duration::from_secs(5));
-                    lcd.clear();
-
-                    // Error check
-                    if enroll_reply.status == "success".to_string() {
-                        println!("User enrolled successfully!");
-                        lcd.display_string("Enrolled", LCD_LINE_1);
-                        lcd.display_string("Successfully!", LCD_LINE_2);
-                        thread::sleep(Duration::from_secs(5));
-                        lcd.clear();
-                        return;
-                    } else {
-                        println!("Error with enrolling the user");
-                        lcd.display_string("Error!", LCD_LINE_1);
-                        thread::sleep(Duration::from_secs(5));
-                        lcd.clear();
-                        return;
-                    }
-                }
-                "update" => {
-                    println!("Please give your ID");
-
-                    lcd.display_string("Please Scan", LCD_LINE_1);
-                    lcd.display_string("your card", LCD_LINE_2);
-                    thread::sleep(Duration::from_secs(2));
-                    lcd.clear();
-
-                    let worker_id = 1;
-                    let new_role_id = 3;
-                    let new_location = "Halifax".to_string();
-
-                    // Construct request structure
-                    let update_req = CheckpointRequest::update_req(
-                        checkpoint_id,
-                        worker_id,
-                        new_role_id,
-                        new_location,
-                    );
-
-                    // Send request and receive response
-                    let update_reply = send_and_receive(
-                        &mut stream,
-                        &update_req,
-                        Arc::clone(&pending_requests),
-                        admin_id,
-                    );
-
-                    // Error check
-                    if update_reply.status == "success".to_string() {
-                        println!("User updated successfully!");
-                        lcd.display_string("Updated", LCD_LINE_1);
-                        lcd.display_string("Successfully!", LCD_LINE_2);
-                        thread::sleep(Duration::from_secs(5));
-                        lcd.clear();
-                        return;
-                    } else {
-                        println!("Error with updating the user");
-                        lcd.display_string("Error", LCD_LINE_1);
-                        thread::sleep(Duration::from_secs(5));
-                        lcd.clear();
-                        return;
-                    }
-                }
-
-                "delete" => {
-                    println!("Please give your ID");
-
-                    lcd.display_string("Please Scan", LCD_LINE_1);
-                    lcd.display_string("your card", LCD_LINE_2);
-                    thread::sleep(Duration::from_secs(2));
-                    lcd.clear();
-
-                    let worker_id = 1;
-
-                    // Construct request structure
-                    let delete_req = CheckpointRequest::delete_req(checkpoint_id, worker_id);
-
-                    // Send request and receive response
-                    let delete_reply = send_and_receive(
-                        &mut stream,
-                        &delete_req,
-                        Arc::clone(&pending_requests),
-                        admin_id,
-                    );
-
-                    // Error check
-                    if delete_reply.status == "success".to_string() {
-                        println!("User deleted successfully!");
-                        lcd.display_string("Deleted", LCD_LINE_1);
-                        lcd.display_string("Successfully!", LCD_LINE_2);
-                        thread::sleep(Duration::from_secs(5));
-                        lcd.clear();
-                        return;
-                    } else {
-                        println!("Error with deleting the user");
-                        lcd.display_string("Error", LCD_LINE_1);
-                        thread::sleep(Duration::from_secs(5));
-                        lcd.clear();
-
-                        return;
-                    }
-                }
-                "authenticate" => {
-                    // Polling loop used to authenticate user
-                    loop {
-                        // Collect card info (first layer of authentication)
-                        println!("Please tap your card");
-
-                        lcd.display_string("Please Scan", LCD_LINE_1);
-                        thread::sleep(Duration::from_secs(2));
-                        lcd.clear();
-
-                        let worker_id = 1;
-
-                        // Send information to port server
-                        println!("Validating card...");
-                        lcd.display_string("Validating", LCD_LINE_1);
-
-                        let location = if is_admin {
-                            "AdminSystem".to_string()
-                        } else {
-                            location.clone()
-                        };
-                        let rfid_auth_req =
-                            CheckpointRequest::rfid_auth_request(checkpoint_id, worker_id);
+                        let auth_req = CheckpointRequest::rfid_auth_request(
+                            checkpoint_id,
+                            worker_id.parse().unwrap_or(0),
+                        );
                         let auth_reply: CheckpointReply = send_and_receive(
                             &mut stream,
-                            &rfid_auth_req,
+                            &auth_req,
                             pending_requests.clone(),
                             admin_id,
                         );
 
                         if let Some(CheckpointState::AuthFailed) = auth_reply.auth_response {
-                            println!("Authentication failed.");
-                            lcd.clear();
                             lcd.display_string("Access Denied", LCD_LINE_1);
                             thread::sleep(Duration::from_secs(5));
-                            lcd.clear();
                             continue;
-                        } else {
-                            println!("Please scan your fingerprint");
-                            lcd.clear();
-                            lcd.display_string("Please scan", LCD_LINE_1);
-                            lcd.display_string("fingerprint", LCD_LINE_2);
-                            thread::sleep(Duration::from_secs(5));
-                            lcd.clear();
-                            lcd.display_string("Validating", LCD_LINE_1);
                         }
 
-                        // Collect fingerprint data
-                        let worker_fingerprint = "dummy fingerprint".to_string();
-                        let fingerprint_auth_request = CheckpointRequest::fingerprint_auth_req(
-                            checkpoint_id,
-                            worker_id,
-                            worker_fingerprint,
-                        );
-                        let fingerprint_auth_reply: CheckpointReply = send_and_receive(
-                            &mut stream,
-                            &fingerprint_auth_request,
-                            pending_requests.clone(),
-                            admin_id,
-                        );
-                        if let Some(CheckpointState::AuthFailed) =
-                            fingerprint_auth_reply.auth_response
-                        {
-                            println!("Authentication failed.");
-                            lcd.clear();
-                            lcd.display_string("Access Denied", LCD_LINE_1);
-                            thread::sleep(Duration::from_secs(5));
-                            lcd.clear();
-                            continue;
-                        } else {
-                            println!("Authentication successful");
-                            lcd.clear();
+                        lcd.display_string("Scan Fingerprint", LCD_LINE_1);
+                        if let Some(fp_id) = get_fingerprint() {
+                            let fp_auth_req = CheckpointRequest::fingerprint_auth_req(
+                                checkpoint_id,
+                                worker_id.parse().unwrap_or(0),
+                                fp_id.to_string(),
+                            );
+
+                            let fp_auth_reply: CheckpointReply = send_and_receive(
+                                &mut stream,
+                                &fp_auth_req,
+                                pending_requests.clone(),
+                                admin_id,
+                            );
+
+                            if let Some(CheckpointState::AuthFailed) = fp_auth_reply.auth_response {
+                                lcd.display_string("Access Denied", LCD_LINE_1);
+                                thread::sleep(Duration::from_secs(5));
+                                continue;
+                            }
                             lcd.display_string("Access Granted", LCD_LINE_1);
-                            thread::sleep(Duration::from_secs(5));
-                            lcd.clear();
+                        } else {
+                            lcd.display_string("Fingerprint Timeout", LCD_LINE_1);
                         }
-                        // 5 second timeout between loop iterations
-                        thread::sleep(Duration::new(5, 0));
+                    } else {
+                        lcd.display_string("RFID Timeout", LCD_LINE_1);
                     }
-                }
+                    thread::sleep(Duration::from_secs(5));
+                },
                 _ => {
                     println!("Unknown function!");
                     return;
