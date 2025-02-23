@@ -444,7 +444,7 @@ fn handle_client(
     let mut buffer = Vec::new();
 
     while running.load(Ordering::SeqCst) {
-        if let Err(e) = read_request(
+        match read_request(
             &conn,
             &mut reader,
             &stream,
@@ -452,11 +452,17 @@ fn handle_client(
             &clients,
             &mut buffer,
         ) {
-            eprintln!("Error processing client {}: {}", client_id, e);
-            break;
+            Ok(_) => continue,
+            Err(e) if e.contains("WouldBlock") => {
+                thread::sleep(Duration::from_millis(50)); // Small sleep before retrying
+                continue;
+            }
+            Err(e) => {
+                eprintln!("Error processing client {}: {}", client_id, e);
+                break;
+            }
         }
     }
-
     println!("Shutting down thread for client {}", client_id);
     clients.lock().unwrap().remove(&client_id);
 }
