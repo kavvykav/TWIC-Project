@@ -1,10 +1,10 @@
 /****************
     IMPORTS
 ****************/
-use common::{App, CheckpointReply, CheckpointRequest, CheckpointState, Submission};
+use common::{CheckpointReply, CheckpointRequest, CheckpointState, Submission};
 use std::collections::HashMap;
 use std::env;
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{BufRead, BufReader, Write};
 use std::net::TcpStream;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -242,14 +242,15 @@ fn main() {
         }
     };
 
-    let admin_id = 1; // Example admin ID
-    let is_admin = true; // Example admin status
+    // Example admin IDs
+    let admin_id_1 = 1; // First admin
+    let admin_id_2 = 2; // Second admin
 
     // Send an init request to register in the database
     let init_req = CheckpointRequest::init_request(location.clone(), authorized_roles);
 
     let mut init_reply: CheckpointReply =
-        send_and_receive(&mut stream, &init_req, pending_requests.clone(), admin_id);
+        send_and_receive(&mut stream, &init_req, pending_requests.clone(), admin_id_1);
     println!(
         "DEBUG: checkpoint_id received = {:?}",
         init_reply.checkpoint_id
@@ -263,7 +264,7 @@ fn main() {
         thread::sleep(Duration::from_secs(5));
 
         // Retry sending the request
-        init_reply = send_and_receive(&mut stream, &init_req, pending_requests.clone(), admin_id);
+        init_reply = send_and_receive(&mut stream, &init_req, pending_requests.clone(), admin_id_1);
     }
 
     if init_reply.status != "success" {
@@ -312,22 +313,39 @@ fn main() {
                                         role_id,
                                     );
 
-                                    let enroll_reply = send_and_receive(
+                                    // First admin sends the request
+                                    let enroll_reply_1 = send_and_receive(
                                         &mut stream,
                                         &enroll_req,
                                         Arc::clone(&pending_requests.clone()),
-                                        admin_id,
+                                        admin_id_1,
                                     );
 
-                                    if enroll_reply.status == "success" {
-                                        println!("User enrolled successfully");
-                                        #[cfg(feature = "raspberry_pi")]
-                                        {
-                                            lcd.display_string("Enrolled", LCD_LINE_1);
-                                            lcd.display_string("Successfully", LCD_LINE_2);
+                                    if enroll_reply_1.status == "waiting" {
+                                        // Second admin approves the request
+                                        let enroll_reply_2 = send_and_receive(
+                                            &mut stream,
+                                            &enroll_req,
+                                            Arc::clone(&pending_requests.clone()),
+                                            admin_id_2,
+                                        );
+
+                                        if enroll_reply_2.status == "success" {
+                                            println!("User enrolled successfully");
+                                            #[cfg(feature = "raspberry_pi")]
+                                            {
+                                                lcd.display_string("Enrolled", LCD_LINE_1);
+                                                lcd.display_string("Successfully", LCD_LINE_2);
+                                            }
+                                        } else {
+                                            eprintln!("Error enrolling user: {:?}", enroll_reply_2); // Debug log
+                                            #[cfg(feature = "raspberry_pi")]
+                                            {
+                                                lcd.display_string("Error!", LCD_LINE_1);
+                                            }
                                         }
                                     } else {
-                                        eprintln!("Error enrolling user: {:?}", enroll_reply); // Debug log
+                                        eprintln!("Error enrolling user: {:?}", enroll_reply_1); // Debug log
                                         #[cfg(feature = "raspberry_pi")]
                                         {
                                             lcd.display_string("Error!", LCD_LINE_1);
@@ -348,21 +366,38 @@ fn main() {
                                         location.clone(),
                                     );
 
-                                    let update_reply = send_and_receive(
+                                    // First admin sends the request
+                                    let update_reply_1 = send_and_receive(
                                         &mut stream,
                                         &update_req,
                                         Arc::clone(&pending_requests.clone()),
-                                        admin_id,
+                                        admin_id_1,
                                     );
 
-                                    if update_reply.status == "success" {
-                                        println!("User updated successfully");
-                                        #[cfg(feature = "raspberry_pi")]
-                                        {
-                                            lcd.display_string("Updated", LCD_LINE_1);
+                                    if update_reply_1.status == "waiting" {
+                                        // Second admin approves the request
+                                        let update_reply_2 = send_and_receive(
+                                            &mut stream,
+                                            &update_req,
+                                            Arc::clone(&pending_requests.clone()),
+                                            admin_id_2,
+                                        );
+
+                                        if update_reply_2.status == "success" {
+                                            println!("User updated successfully");
+                                            #[cfg(feature = "raspberry_pi")]
+                                            {
+                                                lcd.display_string("Updated", LCD_LINE_1);
+                                            }
+                                        } else {
+                                            eprintln!("Error updating user: {:?}", update_reply_2); // Debug log
+                                            #[cfg(feature = "raspberry_pi")]
+                                            {
+                                                lcd.display_string("Error!", LCD_LINE_1);
+                                            }
                                         }
                                     } else {
-                                        eprintln!("Error updating user: {:?}", update_reply); // Debug log
+                                        eprintln!("Error updating user: {:?}", update_reply_1); // Debug log
                                         #[cfg(feature = "raspberry_pi")]
                                         {
                                             lcd.display_string("Error!", LCD_LINE_1);
@@ -375,21 +410,38 @@ fn main() {
                                     let delete_req =
                                         CheckpointRequest::delete_req(checkpoint_id, employee_id);
 
-                                    let delete_reply = send_and_receive(
+                                    // First admin sends the request
+                                    let delete_reply_1 = send_and_receive(
                                         &mut stream,
                                         &delete_req,
                                         Arc::clone(&pending_requests.clone()),
-                                        admin_id,
+                                        admin_id_1,
                                     );
 
-                                    if delete_reply.status == "success" {
-                                        println!("User deleted successfully!");
-                                        #[cfg(feature = "raspberry_pi")]
-                                        {
-                                            lcd.display_string("Deleted", LCD_LINE_1);
+                                    if delete_reply_1.status == "waiting" {
+                                        // Second admin approves the request
+                                        let delete_reply_2 = send_and_receive(
+                                            &mut stream,
+                                            &delete_req,
+                                            Arc::clone(&pending_requests.clone()),
+                                            admin_id_2,
+                                        );
+
+                                        if delete_reply_2.status == "success" {
+                                            println!("User deleted successfully!");
+                                            #[cfg(feature = "raspberry_pi")]
+                                            {
+                                                lcd.display_string("Deleted", LCD_LINE_1);
+                                            }
+                                        } else {
+                                            eprintln!("Error Deleting user: {:?}", delete_reply_2); // Debug log
+                                            #[cfg(feature = "raspberry_pi")]
+                                            {
+                                                lcd.display_string("Error!", LCD_LINE_1);
+                                            }
                                         }
                                     } else {
-                                        eprintln!("Error Deleting user: {:?}", delete_reply); // Debug log
+                                        eprintln!("Error Deleting user: {:?}", delete_reply_1); // Debug log
                                         #[cfg(feature = "raspberry_pi")]
                                         {
                                             lcd.display_string("Error!", LCD_LINE_1);
@@ -437,7 +489,7 @@ fn main() {
                             &mut stream,
                             &rfid_auth_req,
                             pending_requests.clone(),
-                            admin_id,
+                            admin_id_1,
                         );
 
                         if let Some(CheckpointState::AuthFailed) = auth_reply.auth_response {
@@ -475,7 +527,7 @@ fn main() {
                             &mut stream,
                             &fingerprint_auth_request,
                             pending_requests.clone(),
-                            admin_id,
+                            admin_id_1,
                         );
                         if let Some(CheckpointState::AuthFailed) =
                             fingerprint_auth_reply.auth_response
