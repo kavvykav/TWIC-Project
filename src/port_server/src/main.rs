@@ -473,6 +473,7 @@ fn read_request(
     clients: &Arc<Mutex<HashMap<usize, Client>>>,
     buffer: &mut Vec<u8>,
 ) -> Result<(), String> {
+    println!("Received a request");
     buffer.clear();
     match reader.read_until(b'\0', buffer) {
         Ok(0) => Err("Client disconnected".into()),
@@ -533,6 +534,7 @@ fn handle_init_request(
     request: DatabaseRequest,
     stream: &Arc<Mutex<TcpStream>>,
 ) -> Result<(), String> {
+    println!("Received INIT request");
     conn.lock()
         .unwrap()
         .execute(
@@ -544,8 +546,10 @@ fn handle_init_request(
     let reply = query_database(DATABASE_ADDR, &request)
         .map(|db_reply| {
             if db_reply.status == "success" {
+                println!("Got checkpoint ID: {}", db_reply.checkpoint_id.unwrap());
                 DatabaseReply::init_reply(db_reply.checkpoint_id.unwrap())
             } else {
+                println!("Database returned an error");
                 DatabaseReply::error()
             }
         })

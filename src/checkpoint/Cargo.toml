@@ -14,3 +14,6 @@ pyo3 = { version = "0.21", features = ["extension-module"] }
 rand = "0.8"
 tokio = { version = "1", features = ["full"] }
 rppal = "0.14"
+
+[features]
+raspberry_pi = []
