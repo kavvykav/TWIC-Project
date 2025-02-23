@@ -34,3 +34,41 @@
 
 [2025-02-07 00:23:18] Worker ID: Some(999), Checkpoint ID: Some(1), Method: RFID, Status: Failed
 
+[2025-02-23 04:36:16] Worker ID: Some(1), Checkpoint ID: Some(1010), Method: RFID, Status: Successful
+
+[2025-02-23 04:36:21] Worker ID: Some(1), Checkpoint ID: Some(1010), Method: Fingerprint, Status: Failed
+
+[2025-02-23 04:36:38] Worker ID: Some(1), Checkpoint ID: Some(1010), Method: RFID, Status: Successful
+
+[2025-02-23 15:24:25] Worker ID: Some(1), Checkpoint ID: Some(1013), Method: RFID, Status: Failed
+
+[2025-02-23 15:24:42] Worker ID: Some(1), Checkpoint ID: Some(1013), Method: RFID, Status: Failed
+
+[2025-02-23 15:24:59] Worker ID: Some(1), Checkpoint ID: Some(1013), Method: RFID, Status: Failed
+
+[2025-02-23 15:25:17] Worker ID: Some(1), Checkpoint ID: Some(1013), Method: RFID, Status: Failed
+
+[2025-02-23 15:50:21] Worker ID: Some(1), Checkpoint ID: Some(1003), Method: RFID, Status: Failed
+
+[2025-02-23 15:50:38] Worker ID: Some(1), Checkpoint ID: Some(1003), Method: RFID, Status: Failed
+
+[2025-02-23 15:50:55] Worker ID: Some(1), Checkpoint ID: Some(1003), Method: RFID, Status: Failed
+
+[2025-02-23 15:51:13] Worker ID: Some(1), Checkpoint ID: Some(1003), Method: RFID, Status: Failed
+
+[2025-02-23 17:55:43] Worker ID: Some(1), Checkpoint ID: Some(1), Method: Fingerprint, Status: Successful
+[2025-02-23 17:55:43] Worker ID: Some(1), Checkpoint ID: Some(1), Method: RFID, Status: Successful
+
+
+[2025-02-23 17:55:43] Worker ID: Some(2), Checkpoint ID: Some(1), Method: RFID, Status: Failed
+[2025-02-23 17:55:43] Worker ID: Some(1), Checkpoint ID: Some(1), Method: Fingerprint, Status: Failed
+
+
+[2025-02-23 17:55:43] Worker ID: Some(999), Checkpoint ID: Some(1), Method: Fingerprint, Status: Failed
+[2025-02-23 17:55:43] Worker ID: Some(999), Checkpoint ID: Some(1), Method: RFID, Status: Failed
+
+
+[2025-02-23 18:01:59] Worker ID: Some(1), Checkpoint ID: Some(1005), Method: RFID, Status: Successful
+
+[2025-02-23 18:02:05] Worker ID: Some(1), Checkpoint ID: Some(1005), Method: Fingerprint, Status: Successful
+

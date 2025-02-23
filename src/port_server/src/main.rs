@@ -444,7 +444,7 @@ fn handle_client(
     let mut buffer = Vec::new();
 
     while running.load(Ordering::SeqCst) {
-        if let Err(e) = read_request(
+        match read_request(
             &conn,
             &mut reader,
             &stream,
@@ -452,11 +452,17 @@ fn handle_client(
             &clients,
             &mut buffer,
         ) {
-            eprintln!("Error processing client {}: {}", client_id, e);
-            break;
+            Ok(_) => continue,
+            Err(e) if e.contains("WouldBlock") => {
+                thread::sleep(Duration::from_millis(50)); // Small sleep before retrying
+                continue;
+            }
+            Err(e) => {
+                eprintln!("Error processing client {}: {}", client_id, e);
+                break;
+            }
         }
     }
-
     println!("Shutting down thread for client {}", client_id);
     clients.lock().unwrap().remove(&client_id);
 }
@@ -473,6 +479,7 @@ fn read_request(
     clients: &Arc<Mutex<HashMap<usize, Client>>>,
     buffer: &mut Vec<u8>,
 ) -> Result<(), String> {
+    println!("Received a request");
     buffer.clear();
     match reader.read_until(b'\0', buffer) {
         Ok(0) => Err("Client disconnected".into()),
@@ -533,6 +540,7 @@ fn handle_init_request(
     request: DatabaseRequest,
     stream: &Arc<Mutex<TcpStream>>,
 ) -> Result<(), String> {
+    println!("Received INIT request");
     conn.lock()
         .unwrap()
         .execute(
@@ -544,8 +552,10 @@ fn handle_init_request(
     let reply = query_database(DATABASE_ADDR, &request)
         .map(|db_reply| {
             if db_reply.status == "success" {
+                println!("Got checkpoint ID: {}", db_reply.checkpoint_id.unwrap());
                 DatabaseReply::init_reply(db_reply.checkpoint_id.unwrap())
             } else {
+                println!("Database returned an error");
                 DatabaseReply::error()
             }
         })
@@ -767,7 +777,7 @@ fn log_event(worker_id: Option<u32>, checkpoint_id: Option<u32>, method: &str, s
 fn main() -> Result<(), rusqlite::Error> {
     let listener = TcpListener::bind(SERVER_ADDR).expect("Failed to bind address");
     listener
-        .set_nonblocking(true)
+        .set_nonblocking(false)
         .expect("Cannot set non-blocking mode");
     println!("Server listening on {}", SERVER_ADDR);
 
@@ -796,7 +806,7 @@ fn main() -> Result<(), rusqlite::Error> {
                     addr, client_id_counter
                 );
 
-                set_stream_timeout(&stream, Duration::from_secs(30));
+                set_stream_timeout(&stream, Duration::from_secs(300));
                 let stream = Arc::new(Mutex::new(stream));
 
                 let client_id = client_id_counter;

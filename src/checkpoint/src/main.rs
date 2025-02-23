@@ -1,14 +1,17 @@
 /****************
     IMPORTS
 ****************/
-use common::{CheckpointReply, CheckpointRequest, CheckpointState, Lcd, LCD_LINE_1, LCD_LINE_2};
+use common::{CheckpointReply, CheckpointRequest, CheckpointState, Submission};
 use std::collections::HashMap;
 use std::env;
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{BufRead, BufReader, Write};
 use std::net::TcpStream;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
+
+#[cfg(feature = "raspberry_pi")]
+use common::{Lcd, LCD_LINE_1, LCD_LINE_2};
 
 mod fingerprint;
 mod rfid;
@@ -21,6 +24,30 @@ const FINGERPRINT_PORT: &str = "/dev/ttyUSB1";
 const BAUD_RATE: u32 = 9600;
 
 /*
+ * Name: init_lcd
+ * Function: Wrapper function to initialize the LCD.
+ */
+#[cfg(feature = "raspberry_pi")]
+fn init_lcd() -> Option<Lcd> {
+    match Lcd::new() {
+        Ok(lcd) => {
+            println!("LCD initialized successfully.");
+            Some(lcd)
+        }
+        Err(e) => {
+            eprintln!("Failed to initialize LCD: {}", e);
+            None
+        }
+    }
+}
+
+#[cfg(not(feature = "raspberry_pi"))]
+fn init_lcd() -> Option<()> {
+    println!("LCD not supported on this device.");
+    None
+}
+
+/*
  * Name: send_and_receive
  * Function: sends an init message to have the checkpoint register in the centralized database,
  *           where the checkpoint is assigned an ID.
@@ -31,6 +58,59 @@ fn send_and_receive(
     pending_requests: Arc<Mutex<HashMap<String, u32>>>,
     admin_id: u32,
 ) -> CheckpointReply {
+    println!("Sending request: {:?}", request); // Debug log
+
+    // Special case: Skip two-admin approval for initialization or auth requests
+    if request.command == "INIT_REQUEST" || request.command == "AUTHENTICATE" {
+        println!("Initialization request detected. Skipping two-admin approval.");
+
+        let mut json = match serde_json::to_string(request) {
+            Ok(json) => json,
+            Err(e) => {
+                eprintln!("Could not serialize structure: {}", e);
+                return CheckpointReply::error();
+            }
+        };
+        json.push('\0');
+
+        if let Err(e) = stream.write_all(json.as_bytes()) {
+            eprintln!("Could not send to port server: {}", e);
+            return CheckpointReply::error();
+        }
+
+        stream.flush().unwrap();
+
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        let mut buffer = Vec::new();
+        let buffer_str: String = match reader.read_until(b'\0', &mut buffer) {
+            Ok(_) => match String::from_utf8(buffer.clone()) {
+                Ok(mut string) => {
+                    string.pop();
+                    string
+                }
+                Err(e) => {
+                    eprintln!("Failed to convert buffer to a string format: {}", e);
+                    String::new()
+                }
+            },
+            Err(e) => {
+                eprintln!("Failed to read response from port server: {}", e);
+                String::new()
+            }
+        };
+
+        let response: CheckpointReply = match serde_json::from_str(&buffer_str) {
+            Ok(resp) => resp,
+            Err(e) => {
+                eprintln!("Could not deserialize response: {}", e);
+                return CheckpointReply::error();
+            }
+        };
+
+        return response;
+    }
+
+    // For non-init requests, use the two-admin approval logic
     let request_key = format!(
         "{}_{}_{}",
         request.command,
@@ -108,24 +188,6 @@ fn send_and_receive(
         return CheckpointReply::waiting();
     }
 }
-
-/*
- * Name: init_lcd
- * Function: Wrapper function to initialize the LCD.
- */
-fn init_lcd() -> Option<Lcd> {
-    match Lcd::new() {
-        Ok(lcd) => {
-            println!("LCD initialized successfully.");
-            Some(lcd)
-        }
-        Err(e) => {
-            eprintln!("Failed to initialize LCD: {}", e);
-            None
-        }
-    }
-}
-
 /*
  * Name: main
  * Function: serves as the main checkpoint logic
@@ -149,6 +211,7 @@ fn main() {
     let authorized_roles = args[3..].to_vec().join(",");
 
     // Initialize LCD
+    #[cfg(feature = "raspberry_pi")]
     let lcd = match init_lcd() {
         Some(lcd) => lcd,
         None => return, // Exit if LCD initialization fails
@@ -158,35 +221,63 @@ fn main() {
     let mut stream = match TcpStream::connect("127.0.0.1:8080") {
         Ok(stream) => {
             println!("Connected to Server!");
-            lcd.display_string("Connected!", LCD_LINE_1);
-            thread::sleep(Duration::from_secs(5));
-            lcd.clear();
+            #[cfg(feature = "raspberry_pi")]
+            {
+                lcd.display_string("Connected!", LCD_LINE_1);
+                thread::sleep(Duration::from_secs(5));
+                lcd.clear();
+            }
             stream
         }
         Err(e) => {
             eprintln!("Failed to connect to server: {}", e);
-            lcd.display_string("Connection to", LCD_LINE_1);
-            lcd.display_string("server failed", LCD_LINE_2);
-            thread::sleep(Duration::from_secs(5));
-            lcd.clear();
+            #[cfg(feature = "raspberry_pi")]
+            {
+                lcd.display_string("Connection to", LCD_LINE_1);
+                lcd.display_string("server failed", LCD_LINE_2);
+                thread::sleep(Duration::from_secs(5));
+                lcd.clear();
+            }
             return;
         }
     };
 
-    let admin_id = 1; // Example admin ID
-    let is_admin = true; // Example admin status
+    // Example admin IDs
+    let admin_id_1 = 1; // First admin
+    let admin_id_2 = 2; // Second admin
 
     // Send an init request to register in the database
     let init_req = CheckpointRequest::init_request(location.clone(), authorized_roles);
 
-    let init_reply: CheckpointReply =
-        send_and_receive(&mut stream, &init_req, pending_requests.clone(), admin_id);
+    let mut init_reply: CheckpointReply =
+        send_and_receive(&mut stream, &init_req, pending_requests.clone(), admin_id_1);
+    println!(
+        "DEBUG: checkpoint_id received = {:?}",
+        init_reply.checkpoint_id
+    );
 
-    if init_reply.status == "error" {
-        eprintln!("Error with registering the checkpoint");
-        lcd.display_string("Init failed", LCD_LINE_1);
+    // Handle the "waiting" status
+    while init_reply.status == "waiting" {
+        println!("Waiting for another admin to approve the request...");
+
+        // Sleep for a few seconds before retrying
         thread::sleep(Duration::from_secs(5));
-        lcd.clear();
+
+        // Retry sending the request
+        init_reply = send_and_receive(&mut stream, &init_req, pending_requests.clone(), admin_id_1);
+    }
+
+    if init_reply.status != "success" {
+        eprintln!(
+            "Error with registering the checkpoint: {}",
+            init_reply.status
+        );
+        #[cfg(feature = "raspberry_pi")]
+        {
+            lcd.display_string("Init failed", LCD_LINE_1);
+            thread::sleep(Duration::from_secs(5));
+            lcd.clear();
+        }
         return;
     }
 
@@ -200,194 +291,229 @@ fn main() {
         // Functionalities at the checkpoint side
         if let Some(function) = args.get(1) {
             match function.as_str() {
-                "enroll" => {
-                    println!("Please give your name");
+                "tui" => {
+                    // Call the TUI
+                    match common::App::new().run() {
+                        Ok(Some(submission)) => {
+                            println!("TUI Submission received: {:?}", submission);
+                            match submission {
+                                Submission::Enroll {
+                                    name,
+                                    biometric,
+                                    role_id,
+                                    location,
+                                } => {
+                                    let role_id = role_id.parse::<u32>().unwrap_or(0);
 
-                    lcd.display_string("Enter Name", LCD_LINE_1);
-                    thread::sleep(Duration::from_secs(5));
-                    lcd.clear();
+                                    let enroll_req = CheckpointRequest::enroll_req(
+                                        checkpoint_id,
+                                        name,
+                                        biometric,
+                                        location,
+                                        role_id,
+                                    );
 
-                    let worker_name = "Jim Bob".to_string();
-                    println!("Please enter your role");
+                                    // First admin sends the request
+                                    let enroll_reply_1 = send_and_receive(
+                                        &mut stream,
+                                        &enroll_req,
+                                        Arc::clone(&pending_requests.clone()),
+                                        admin_id_1,
+                                    );
 
-                    lcd.display_string("Enter Role", LCD_LINE_1);
-                    thread::sleep(Duration::from_secs(5));
-                    lcd.clear();
+                                    if enroll_reply_1.status == "waiting" {
+                                        // Second admin approves the request
+                                        let enroll_reply_2 = send_and_receive(
+                                            &mut stream,
+                                            &enroll_req,
+                                            Arc::clone(&pending_requests.clone()),
+                                            admin_id_2,
+                                        );
 
-                    let role_id = 2;
-                    println!("Please scan your fingerprint");
+                                        if enroll_reply_2.status == "success" {
+                                            println!("User enrolled successfully");
+                                            #[cfg(feature = "raspberry_pi")]
+                                            {
+                                                lcd.display_string("Enrolled", LCD_LINE_1);
+                                                lcd.display_string("Successfully", LCD_LINE_2);
+                                            }
+                                        } else {
+                                            eprintln!("Error enrolling user: {:?}", enroll_reply_2); // Debug log
+                                            #[cfg(feature = "raspberry_pi")]
+                                            {
+                                                lcd.display_string("Error!", LCD_LINE_1);
+                                            }
+                                        }
+                                    } else {
+                                        eprintln!("Error enrolling user: {:?}", enroll_reply_1); // Debug log
+                                        #[cfg(feature = "raspberry_pi")]
+                                        {
+                                            lcd.display_string("Error!", LCD_LINE_1);
+                                        }
+                                    }
+                                }
+                                Submission::Update {
+                                    employee_id,
+                                    role_id,
+                                } => {
+                                    let role_id = role_id.parse::<u32>().unwrap_or(0);
+                                    let employee_id = employee_id.parse::<u32>().unwrap_or(0);
 
-                    lcd.display_string("Enter Your", LCD_LINE_1);
-                    lcd.display_string("Fingerprint", LCD_LINE_2);
-                    thread::sleep(Duration::from_secs(5));
-                    lcd.clear();
+                                    let update_req = CheckpointRequest::update_req(
+                                        checkpoint_id,
+                                        employee_id,
+                                        role_id,
+                                        location.clone(),
+                                    );
 
-                    let worker_fingerprint = "dummy fingerprint".to_string();
+                                    // First admin sends the request
+                                    let update_reply_1 = send_and_receive(
+                                        &mut stream,
+                                        &update_req,
+                                        Arc::clone(&pending_requests.clone()),
+                                        admin_id_1,
+                                    );
 
-                    // Construct enroll request
-                    let enroll_req = CheckpointRequest::enroll_req(
-                        checkpoint_id,
-                        worker_name,
-                        worker_fingerprint,
-                        location,
-                        role_id,
-                    );
+                                    if update_reply_1.status == "waiting" {
+                                        // Second admin approves the request
+                                        let update_reply_2 = send_and_receive(
+                                            &mut stream,
+                                            &update_req,
+                                            Arc::clone(&pending_requests.clone()),
+                                            admin_id_2,
+                                        );
 
-                    // Send and receive the response
-                    let enroll_reply = send_and_receive(
-                        &mut stream,
-                        &enroll_req,
-                        Arc::clone(&pending_requests.clone()),
-                        admin_id,
-                    );
-                    lcd.display_string("Enrolling...", LCD_LINE_1);
-                    thread::sleep(Duration::from_secs(5));
-                    lcd.clear();
+                                        if update_reply_2.status == "success" {
+                                            println!("User updated successfully");
+                                            #[cfg(feature = "raspberry_pi")]
+                                            {
+                                                lcd.display_string("Updated", LCD_LINE_1);
+                                            }
+                                        } else {
+                                            eprintln!("Error updating user: {:?}", update_reply_2); // Debug log
+                                            #[cfg(feature = "raspberry_pi")]
+                                            {
+                                                lcd.display_string("Error!", LCD_LINE_1);
+                                            }
+                                        }
+                                    } else {
+                                        eprintln!("Error updating user: {:?}", update_reply_1); // Debug log
+                                        #[cfg(feature = "raspberry_pi")]
+                                        {
+                                            lcd.display_string("Error!", LCD_LINE_1);
+                                        }
+                                    }
+                                }
+                                Submission::Delete { employee_id } => {
+                                    let employee_id = employee_id.parse::<u32>().unwrap_or(0);
 
-                    // Error check
-                    if enroll_reply.status == "success".to_string() {
-                        println!("User enrolled successfully!");
-                        lcd.display_string("Enrolled", LCD_LINE_1);
-                        lcd.display_string("Successfully!", LCD_LINE_2);
-                        thread::sleep(Duration::from_secs(5));
-                        lcd.clear();
-                        return;
-                    } else {
-                        println!("Error with enrolling the user");
-                        lcd.display_string("Error!", LCD_LINE_1);
-                        thread::sleep(Duration::from_secs(5));
-                        lcd.clear();
-                        return;
+                                    let delete_req =
+                                        CheckpointRequest::delete_req(checkpoint_id, employee_id);
+
+                                    // First admin sends the request
+                                    let delete_reply_1 = send_and_receive(
+                                        &mut stream,
+                                        &delete_req,
+                                        Arc::clone(&pending_requests.clone()),
+                                        admin_id_1,
+                                    );
+
+                                    if delete_reply_1.status == "waiting" {
+                                        // Second admin approves the request
+                                        let delete_reply_2 = send_and_receive(
+                                            &mut stream,
+                                            &delete_req,
+                                            Arc::clone(&pending_requests.clone()),
+                                            admin_id_2,
+                                        );
+
+                                        if delete_reply_2.status == "success" {
+                                            println!("User deleted successfully!");
+                                            #[cfg(feature = "raspberry_pi")]
+                                            {
+                                                lcd.display_string("Deleted", LCD_LINE_1);
+                                            }
+                                        } else {
+                                            eprintln!("Error Deleting user: {:?}", delete_reply_2); // Debug log
+                                            #[cfg(feature = "raspberry_pi")]
+                                            {
+                                                lcd.display_string("Error!", LCD_LINE_1);
+                                            }
+                                        }
+                                    } else {
+                                        eprintln!("Error Deleting user: {:?}", delete_reply_1); // Debug log
+                                        #[cfg(feature = "raspberry_pi")]
+                                        {
+                                            lcd.display_string("Error!", LCD_LINE_1);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        Ok(None) => {
+                            println!("TUI was exited without submission.");
+                        }
+                        Err(e) => {
+                            eprintln!("TUI encountered an error: {}", e);
+                        }
                     }
                 }
-                "update" => {
-                    println!("Please give your ID");
 
-                    lcd.display_string("Please Scan", LCD_LINE_1);
-                    lcd.display_string("your card", LCD_LINE_2);
-                    thread::sleep(Duration::from_secs(2));
-                    lcd.clear();
-
-                    let worker_id = 1;
-                    let new_role_id = 3;
-                    let new_location = "Halifax".to_string();
-
-                    // Construct request structure
-                    let update_req = CheckpointRequest::update_req(
-                        checkpoint_id,
-                        worker_id,
-                        new_role_id,
-                        new_location,
-                    );
-
-                    // Send request and receive response
-                    let update_reply = send_and_receive(
-                        &mut stream,
-                        &update_req,
-                        Arc::clone(&pending_requests),
-                        admin_id,
-                    );
-
-                    // Error check
-                    if update_reply.status == "success".to_string() {
-                        println!("User updated successfully!");
-                        lcd.display_string("Updated", LCD_LINE_1);
-                        lcd.display_string("Successfully!", LCD_LINE_2);
-                        thread::sleep(Duration::from_secs(5));
-                        lcd.clear();
-                        return;
-                    } else {
-                        println!("Error with updating the user");
-                        lcd.display_string("Error", LCD_LINE_1);
-                        thread::sleep(Duration::from_secs(5));
-                        lcd.clear();
-                        return;
-                    }
-                }
-
-                "delete" => {
-                    println!("Please give your ID");
-
-                    lcd.display_string("Please Scan", LCD_LINE_1);
-                    lcd.display_string("your card", LCD_LINE_2);
-                    thread::sleep(Duration::from_secs(2));
-                    lcd.clear();
-
-                    let worker_id = 1;
-
-                    // Construct request structure
-                    let delete_req = CheckpointRequest::delete_req(checkpoint_id, worker_id);
-
-                    // Send request and receive response
-                    let delete_reply = send_and_receive(
-                        &mut stream,
-                        &delete_req,
-                        Arc::clone(&pending_requests),
-                        admin_id,
-                    );
-
-                    // Error check
-                    if delete_reply.status == "success".to_string() {
-                        println!("User deleted successfully!");
-                        lcd.display_string("Deleted", LCD_LINE_1);
-                        lcd.display_string("Successfully!", LCD_LINE_2);
-                        thread::sleep(Duration::from_secs(5));
-                        lcd.clear();
-                        return;
-                    } else {
-                        println!("Error with deleting the user");
-                        lcd.display_string("Error", LCD_LINE_1);
-                        thread::sleep(Duration::from_secs(5));
-                        lcd.clear();
-
-                        return;
-                    }
-                }
                 "authenticate" => {
                     // Polling loop used to authenticate user
                     loop {
                         // Collect card info (first layer of authentication)
                         println!("Please tap your card");
 
-                        lcd.display_string("Please Scan", LCD_LINE_1);
-                        thread::sleep(Duration::from_secs(2));
-                        lcd.clear();
+                        #[cfg(feature = "raspberry_pi")]
+                        {
+                            lcd.display_string("Please Scan", LCD_LINE_1);
+                            thread::sleep(Duration::from_secs(2));
+                            lcd.clear();
+                        }
 
                         let worker_id = 1;
 
                         // Send information to port server
                         println!("Validating card...");
-                        lcd.display_string("Validating", LCD_LINE_1);
+                        #[cfg(feature = "raspberry_pi")]
+                        {
+                            lcd.display_string("Validating", LCD_LINE_1);
+                        }
 
-                        let location = if is_admin {
-                            "AdminSystem".to_string()
-                        } else {
-                            location.clone()
-                        };
+                        let location = location.clone();
+
                         let rfid_auth_req =
                             CheckpointRequest::rfid_auth_request(checkpoint_id, worker_id);
                         let auth_reply: CheckpointReply = send_and_receive(
                             &mut stream,
                             &rfid_auth_req,
                             pending_requests.clone(),
-                            admin_id,
+                            admin_id_1,
                         );
 
                         if let Some(CheckpointState::AuthFailed) = auth_reply.auth_response {
+                            eprintln!("RFID Authentication failed: {:?}", auth_reply); // Debug log
                             println!("Authentication failed.");
-                            lcd.clear();
-                            lcd.display_string("Access Denied", LCD_LINE_1);
-                            thread::sleep(Duration::from_secs(5));
-                            lcd.clear();
+                            #[cfg(feature = "raspberry_pi")]
+                            {
+                                lcd.clear();
+                                lcd.display_string("Access Denied", LCD_LINE_1);
+                                thread::sleep(Duration::from_secs(5));
+                                lcd.clear();
+                            }
                             continue;
                         } else {
                             println!("Please scan your fingerprint");
-                            lcd.clear();
-                            lcd.display_string("Please scan", LCD_LINE_1);
-                            lcd.display_string("fingerprint", LCD_LINE_2);
-                            thread::sleep(Duration::from_secs(5));
-                            lcd.clear();
-                            lcd.display_string("Validating", LCD_LINE_1);
+                            #[cfg(feature = "raspberry_pi")]
+                            {
+                                lcd.clear();
+                                lcd.display_string("Please scan", LCD_LINE_1);
+                                lcd.display_string("fingerprint", LCD_LINE_2);
+                                thread::sleep(Duration::from_secs(5));
+                                lcd.clear();
+                                lcd.display_string("Validating", LCD_LINE_1);
+                            }
                         }
 
                         // Collect fingerprint data
@@ -401,23 +527,33 @@ fn main() {
                             &mut stream,
                             &fingerprint_auth_request,
                             pending_requests.clone(),
-                            admin_id,
+                            admin_id_1,
                         );
                         if let Some(CheckpointState::AuthFailed) =
                             fingerprint_auth_reply.auth_response
                         {
+                            eprintln!(
+                                "Fingerprint Authentication failed: {:?}",
+                                fingerprint_auth_reply
+                            ); // Debug log
                             println!("Authentication failed.");
-                            lcd.clear();
-                            lcd.display_string("Access Denied", LCD_LINE_1);
-                            thread::sleep(Duration::from_secs(5));
-                            lcd.clear();
+                            #[cfg(feature = "raspberry_pi")]
+                            {
+                                lcd.clear();
+                                lcd.display_string("Access Denied", LCD_LINE_1);
+                                thread::sleep(Duration::from_secs(5));
+                                lcd.clear();
+                            }
                             continue;
                         } else {
                             println!("Authentication successful");
-                            lcd.clear();
-                            lcd.display_string("Access Granted", LCD_LINE_1);
-                            thread::sleep(Duration::from_secs(5));
-                            lcd.clear();
+                            #[cfg(feature = "raspberry_pi")]
+                            {
+                                lcd.clear();
+                                lcd.display_string("Access Granted", LCD_LINE_1);
+                                thread::sleep(Duration::from_secs(5));
+                                lcd.clear();
+                            }
                         }
                         // 5 second timeout between loop iterations
                         thread::sleep(Duration::new(5, 0));
