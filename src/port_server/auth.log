@@ -40,3 +40,11 @@
 
 [2025-02-23 04:36:38] Worker ID: Some(1), Checkpoint ID: Some(1010), Method: RFID, Status: Successful
 
+[2025-02-23 15:24:25] Worker ID: Some(1), Checkpoint ID: Some(1013), Method: RFID, Status: Failed
+
+[2025-02-23 15:24:42] Worker ID: Some(1), Checkpoint ID: Some(1013), Method: RFID, Status: Failed
+
+[2025-02-23 15:24:59] Worker ID: Some(1), Checkpoint ID: Some(1013), Method: RFID, Status: Failed
+
+[2025-02-23 15:25:17] Worker ID: Some(1), Checkpoint ID: Some(1013), Method: RFID, Status: Failed
+

@@ -777,7 +777,7 @@ fn log_event(worker_id: Option<u32>, checkpoint_id: Option<u32>, method: &str, s
 fn main() -> Result<(), rusqlite::Error> {
     let listener = TcpListener::bind(SERVER_ADDR).expect("Failed to bind address");
     listener
-        .set_nonblocking(true)
+        .set_nonblocking(false)
         .expect("Cannot set non-blocking mode");
     println!("Server listening on {}", SERVER_ADDR);
 
@@ -806,7 +806,7 @@ fn main() -> Result<(), rusqlite::Error> {
                     addr, client_id_counter
                 );
 
-                set_stream_timeout(&stream, Duration::from_secs(30));
+                set_stream_timeout(&stream, Duration::from_secs(300));
                 let stream = Arc::new(Mutex::new(stream));
 
                 let client_id = client_id_counter;
