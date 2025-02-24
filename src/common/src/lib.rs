@@ -693,8 +693,6 @@ pub fn encrypt_aes(plaintext: &str, key: &[u8], iv: &[u8]) -> Vec<u8> {
     let mut count = encrypter.update(plaintext.as_bytes(), &mut ciphertext).expect("Encryption failed");
     count += encrypter.finalize(&mut ciphertext[count..]).expect("Final encryption step failed");
 
-    println!("🔒 Ciphertext Length: {}", ciphertext.len());
-
     ciphertext.truncate(count);
     ciphertext
 }
@@ -759,10 +757,8 @@ pub fn decrypt_string(sk_string: &String, ciphertext_string: &String, params: &P
 // ---------- AES Decryption ----------
 pub fn decrypt_aes(ciphertext: &[u8], key: &[u8], iv: &[u8]) -> String {
     let cipher = Cipher::aes_256_cbc();
-    let mut decrypter = Crypter::new(cipher, Mode::Decrypt, key, Some(iv))
-    .expect("Failed to create decrypter");
-
-    decrypter.pad(true); // ✅ Make sure this is set!
+    let mut decrypter = Crypter::new(cipher, Mode::Decrypt, key, Some(iv)).expect("Failed to create decrypter");
+    decrypter.pad(true);
 
     let mut plaintext = vec![0; ciphertext.len() + cipher.block_size()];
     let mut count = decrypter.update(ciphertext, &mut plaintext).expect("Decryption failed");
