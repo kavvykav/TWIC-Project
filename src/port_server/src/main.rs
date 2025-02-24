@@ -522,14 +522,25 @@ fn query_database(database_addr: &str, request: &DatabaseRequest) -> Result<Data
     let request_json = serde_json::to_string(request)
         .map_err(|e| format!("Failed to serialize request: {}", e))?;
 
+    let aes_key_opt = SYMMETRIC_KEY.lock().unwrap().clone();
+    let aes_iv_opt = SYMMETRIC_IV.lock().unwrap().clone();
+
+    let encrypted_request = if aes_key_opt.is_some() && aes_iv_opt.is_some() && request.command != "KEY_EXCHANGE" {
+        let aes_key = hex::decode(aes_key_opt.unwrap()).expect("Invalid AES Key");
+        let aes_iv = hex::decode(aes_iv_opt.unwrap()).expect("Invalid IV");
+
+        println!("Encrypting request before sending to database...");
+        encrypt_aes(&request_json, &aes_key, &aes_iv)
+    } else {
+        println!("WARNING: Sending unencrypted request ({})", request.command);
+        request_json.as_bytes().to_vec()
+    };
+
     let mut stream = TcpStream::connect(database_addr)
         .map_err(|e| format!("Failed to connect to database: {}", e))?;
 
-    // Perform Key Exchange on first connection
-    //key_exchange(&mut stream).expect("Key exchange failed");
-
     stream
-        .write_all(format!("{}", request_json).as_bytes())
+        .write_all(&encrypted_request)
         .map_err(|e| format!("Failed to send request to database: {}", e))?;
 
     let mut reader = BufReader::new(&mut stream);
@@ -549,6 +560,7 @@ fn query_database(database_addr: &str, request: &DatabaseRequest) -> Result<Data
 
     Ok(response)   
 }
+
 
 /*
  * Name: handle_client
