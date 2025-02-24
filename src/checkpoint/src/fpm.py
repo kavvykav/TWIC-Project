@@ -22,10 +22,9 @@ def get_fp():
 
     if fpm.finger_search() == adafp.OK:
         fp_id = fpm.finger_id
-        print(
-            f"Fingerprint Match! ID: {fpm.finger_id} with {fpm.confidence} confidence"
-        )
+        print(f"Fingerprint Match! ID: {fp_id} with {fpm.confidence} confidence")
         rc = fp_id
+        print(rc)
         return rc
     else:
         # No Match Found
@@ -54,6 +53,7 @@ def enroll_fp(fp_id):
     if fpm.store_model(fp_id) == adafp.OK:
         print("Template registered with ID: {fp_id}")
         rc = fp_id
+        print(rc)
         return rc
     else:
         # Registration failed
