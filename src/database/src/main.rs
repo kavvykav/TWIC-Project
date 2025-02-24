@@ -1,12 +1,18 @@
 /****************
     IMPORTS
 ****************/
-use common::{DatabaseReply, DatabaseRequest, Role, DATABASE_ADDR};
+use common::{DatabaseReply, DatabaseRequest, Role, DATABASE_ADDR, Parameters, 
+    keygen_string, encrypt_string, decrypt_string, encrypt_aes, decrypt_aes, generate_iv, generate_key
+};
 use rusqlite::{params, Connection, Result};
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::sync::Mutex;
+use lazy_static::lazy_static;
+use std::sync::Mutex as StdMutex;
+use std::fs::File;
+use std::io::Write;
 
 /*
 * Name: initialize_database
@@ -64,6 +70,44 @@ fn initialize_database() -> Result<Connection> {
 }
 
 /*
+* Name: initialize_database
+* Function: initializes the centralized database by creating all the tables,
+*           returns a connection to the database.
+*/
+lazy_static! {
+    static ref DB_KEYPAIR: std::sync::Mutex<(String, String)> = std::sync::Mutex::new({
+        let params = Parameters::default();
+        let keypair = keygen_string(&params, None);
+        (
+            keypair.get("public").expect("Public key not found").to_string(),
+            keypair.get("secret").expect("Private key not found").to_string()
+        )
+    });
+}
+
+lazy_static! {
+    // Global variables to hold the symmetric AES key and IV as hex strings.
+    static ref AES_KEY: StdMutex<Option<String>> = StdMutex::new(None);
+    static ref IV: StdMutex<Option<String>> = StdMutex::new(None);
+}
+
+
+
+
+fn write_db_public_key() {
+    let keypair = DB_KEYPAIR.lock().unwrap();
+    let public_key = &keypair.0;
+    let mut file = File::create("db_public_key.txt")
+        .expect("Unable to create public key file");
+    file.write_all(public_key.as_bytes())
+        .expect("Unable to write public key");
+}
+
+
+
+
+
+/*
 * Name: handle_port_server_request
 * Function: Searches for the command in the Request structure from the port server,
 *           and services the request accordingly.
@@ -72,8 +116,13 @@ async fn handle_port_server_request(
     conn: Arc<Mutex<Connection>>,
     req: DatabaseRequest,
 ) -> DatabaseReply {
+    println!("Received raw request: {:?}", req);
+
+
+
     let conn = conn.lock().await;
     println!("Received a command: {}", req.command);
+    let rlwe_params = Parameters::default();
 
     match req.command.as_str() {
         "INIT_REQUEST" => {
@@ -222,12 +271,44 @@ async fn handle_port_server_request(
                 }
             }
         }
+        "KEY_EXCHANGE" => {
+            let port_public_key = req.public_key.as_ref().expect("Missing port server public key");
+            let aes_key_temp = generate_key();
+            let iv_temp = generate_iv();
+
+            let encrypted_aes_key = encrypt_string(port_public_key, &aes_key_temp, &rlwe_params, None);
+            let encrypted_iv = encrypt_string(port_public_key, &iv_temp, &rlwe_params, None);
+
+            println!("Database generated AES Key: {:?}", aes_key_temp);
+            println!("Database generated IV: {:?}", iv_temp);
+
+            AES_KEY.lock().unwrap().replace(hex::encode(&aes_key_temp));
+            IV.lock().unwrap().replace(hex::encode(&iv_temp));
+            return DatabaseReply {
+                status: "success".to_string(),
+                checkpoint_id: None,
+                worker_id: None,
+                worker_fingerprint: None,
+                role_id: None,
+                authorized_roles: None,
+                location: None,
+                auth_response: None,
+                allowed_locations: None,
+                worker_name: None,
+                encrypted_aes_key: Some(encrypted_aes_key),
+                encrypted_iv: Some(encrypted_iv),
+                public_key: None,
+            };
+        }
+
+
         _ => {
             println!("Unknown command");
             return DatabaseReply::error();
         }
     }
 }
+
 
 /*
 * Name: main
@@ -239,6 +320,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let database = initialize_database()?;
     let database = Arc::new(Mutex::new(database));
 
+    write_db_public_key();
+
     let listener = TcpListener::bind(DATABASE_ADDR).await?;
     println!("Database server is listening on {}", DATABASE_ADDR);
 
@@ -249,17 +332,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let database = Arc::clone(&database);
 
         tokio::spawn(async move {
-            let mut buffer = vec![0; 1024];
+            let mut buffer = vec![0; 8192];
 
             match socket.read(&mut buffer).await {
                 Ok(0) => println!("Client at {} has closed the connection", addr),
                 Ok(n) => {
+                    println!("Received {} bytes from {}", n, addr);
                     let request_json = String::from_utf8_lossy(&buffer[..n]);
+                    println!("Raw received JSON: {}", request_json);
                     let request: Result<DatabaseRequest, _> = serde_json::from_str(&request_json);
 
                     let database_reply = match request {
                         Ok(req) => handle_port_server_request(database, req).await,
-                        Err(_) => DatabaseReply::error(),
+                        Err(e) => {
+                            eprintln!("Failed to deserialize request: {} | Raw JSON: {}", e, request_json);
+                            DatabaseReply::error()
+                        }
+                        
                     };
 
                     let mut reply_json = match serde_json::to_string(&database_reply) {
@@ -270,7 +359,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                     };
 
-                    // Append null terminator to tell the server when to stop reading
                     reply_json.push('\0');
 
                     if let Err(e) = socket.write_all(reply_json.as_bytes()).await {
