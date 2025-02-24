@@ -114,9 +114,27 @@ fn write_db_public_key() {
 */
 async fn handle_port_server_request(
     conn: Arc<Mutex<Connection>>,
-    req: DatabaseRequest,
+    encrypted_request: Vec<u8>, // Expecting an encrypted request
 ) -> DatabaseReply {
-    println!("Received raw request: {:?}", req);
+    // Check if we have decryption keys yet
+    let aes_key_opt = AES_KEY.lock().unwrap().clone();
+    let aes_iv_opt = IV.lock().unwrap().clone();
+
+    let request_json = if aes_key_opt.is_some() && aes_iv_opt.is_some() {
+        let aes_key = hex::decode(aes_key_opt.unwrap()).expect("Invalid AES Key");
+        let aes_iv = hex::decode(aes_iv_opt.unwrap()).expect("Invalid IV");
+    
+        println!("🔓 Decrypting request before processing...");
+        decrypt_aes(&encrypted_request, &aes_key, &aes_iv)
+    } else {
+        println!("⚠️ WARNING: Processing unencrypted request...");
+        String::from_utf8(encrypted_request).expect("Invalid UTF-8")
+    };
+    
+    // Now, safely parse the decrypted JSON into a `DatabaseRequest`
+    let req: DatabaseRequest = serde_json::from_str(&request_json)
+        .expect("Failed to parse decrypted JSON");
+    
 
 
 
@@ -332,24 +350,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let database = Arc::clone(&database);
 
         tokio::spawn(async move {
-            let mut buffer = vec![0; 8192];
+            let mut buffer = vec![0; 9000];
 
             match socket.read(&mut buffer).await {
                 Ok(0) => println!("Client at {} has closed the connection", addr),
                 Ok(n) => {
                     println!("Received {} bytes from {}", n, addr);
-                    let request_json = String::from_utf8_lossy(&buffer[..n]);
-                    println!("Raw received JSON: {}", request_json);
-                    let request: Result<DatabaseRequest, _> = serde_json::from_str(&request_json);
-
-                    let database_reply = match request {
-                        Ok(req) => handle_port_server_request(database, req).await,
-                        Err(e) => {
-                            eprintln!("Failed to deserialize request: {} | Raw JSON: {}", e, request_json);
-                            DatabaseReply::error()
-                        }
-                        
-                    };
+                    let encrypted_request = buffer[..n].to_vec(); 
+                    let database_reply = handle_port_server_request(database, encrypted_request).await;
+                    
 
                     let mut reply_json = match serde_json::to_string(&database_reply) {
                         Ok(json) => json,
