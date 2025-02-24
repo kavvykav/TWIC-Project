@@ -14,6 +14,8 @@ use rand::rngs::StdRng;
 use rand::Rng;
 use std::collections::HashMap;
 use openssl::symm::{Cipher, Crypter, Mode};
+use base64::{encode, decode};
+
 
 /*************************************
     ROLES FOR ROLE BASED AUTH
@@ -215,7 +217,7 @@ pub struct Client {
 }
 
 // Format for requests to the Database
-#[derive(Deserialize, Serialize, Clone)]
+#[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct DatabaseRequest {
     pub command: String,
     pub checkpoint_id: Option<u32>,
@@ -225,6 +227,9 @@ pub struct DatabaseRequest {
     pub location: Option<String>,
     pub authorized_roles: Option<String>,
     pub role_id: Option<u32>,
+    pub encrypted_aes_key: Option<String>,
+    pub encrypted_iv: Option<String>,
+    pub public_key: Option<String>,
 }
 
 // Database response format
@@ -241,6 +246,10 @@ pub struct DatabaseReply {
     pub auth_response: Option<CheckpointState>,
     pub allowed_locations: Option<String>,
     pub worker_name: Option<String>,
+    pub encrypted_aes_key: Option<String>,
+    pub encrypted_iv: Option<String>,
+    pub public_key: Option<String>,
+    
 }
 
 impl DatabaseReply {
@@ -256,6 +265,10 @@ impl DatabaseReply {
             auth_response: None,
             allowed_locations: None,
             worker_name: None,
+            encrypted_aes_key: None,
+            encrypted_iv: None,
+            public_key: None,
+
         }
     }
 
@@ -271,6 +284,9 @@ impl DatabaseReply {
             auth_response: None,
             allowed_locations: Some(allowed_locations),
             worker_name: None,
+            encrypted_aes_key: None,
+            encrypted_iv: None,
+            public_key: None,
         }
     }
 
@@ -286,6 +302,9 @@ impl DatabaseReply {
             auth_response: None,
             allowed_locations: None,
             worker_name: None,
+            encrypted_aes_key: None,
+            encrypted_iv: None,
+            public_key: None,
         }
     }
     pub fn auth_reply(
@@ -309,6 +328,9 @@ impl DatabaseReply {
             auth_response: None,
             allowed_locations: Some(allowed_locations),
             worker_name: Some(worker_name),
+            encrypted_aes_key: None,
+            encrypted_iv: None,
+            public_key: None,
         }
     }
     pub fn init_reply(checkpoint_id: u32) -> Self {
@@ -323,6 +345,9 @@ impl DatabaseReply {
             auth_response: None,
             allowed_locations: None,
             worker_name: None,
+            encrypted_aes_key: None,
+            encrypted_iv: None,
+            public_key: None,
         }
     }
 }
@@ -398,9 +423,13 @@ impl Lcd {
     }
 }
 
+
+
 /***************************************
 *           Cryptography 
 ****************************************/
+
+#[derive(Debug)]
 pub struct Parameters {
     pub n: usize,       // Polynomial modulus degree
     pub q: i64,       // Ciphertext modulus
@@ -626,8 +655,8 @@ pub fn encrypt(
     (ct0, ct1)
 }
 
-
-pub fn encrypt_string(pk_string: &String, message: &String, params: &Parameters, seed: Option<u64>) -> String {
+pub fn encrypt_string(pk_string: &String, message: &[u8], params: &Parameters, seed: Option<u64>) -> String {
+    let message_str = encode(message); // Convert u8 array to Base64 String
     let pk_arr: Vec<i64> = pk_string
         .split(',')
         .filter_map(|x| x.parse::<i64>().ok())
@@ -637,14 +666,12 @@ pub fn encrypt_string(pk_string: &String, message: &String, params: &Parameters,
     let pk_a = Polynomial::new(pk_arr[params.n..].to_vec());
     let pk = [pk_b, pk_a];
 
-    let message_bytes: Vec<u8> = message.as_bytes().to_vec();
+    let message_bytes: Vec<u8> = message_str.as_bytes().to_vec();
     let message_ints: Vec<i64> = message_bytes.iter().map(|&byte| byte as i64).collect();
     let message_poly = Polynomial::new(message_ints);
 
-    
     let ciphertext = encrypt(&pk, &message_poly, params, seed);
 
-    
     let ciphertext_string = ciphertext.0.coeffs()
         .iter()
         .chain(ciphertext.1.coeffs().iter())
@@ -655,20 +682,21 @@ pub fn encrypt_string(pk_string: &String, message: &String, params: &Parameters,
     ciphertext_string
 }
 
+
 // ---------- AES Encrypt ----------
-pub fn encrypt_aes_string(aes_key: &[u8; 32], iv: &[u8; 16], plaintext: &str) -> String {
+pub fn encrypt_aes(plaintext: &str, key: &[u8], iv: &[u8]) -> Vec<u8> {
     let cipher = Cipher::aes_256_cbc();
-    let mut crypter = Crypter::new(cipher, Mode::Encrypt, aes_key, Some(iv))
-        .expect("Failed to create encryptor");
+    let mut encrypter = Crypter::new(cipher, Mode::Encrypt, key, Some(iv)).expect("Failed to create encrypter");
+    encrypter.pad(true);
 
     let mut ciphertext = vec![0; plaintext.len() + cipher.block_size()];
-    let mut count = crypter.update(plaintext.as_bytes(), &mut ciphertext)
-        .expect("Encryption failed");
-    count += crypter.finalize(&mut ciphertext[count..])
-        .expect("Finalization failed");
+    let mut count = encrypter.update(plaintext.as_bytes(), &mut ciphertext).expect("Encryption failed");
+    count += encrypter.finalize(&mut ciphertext[count..]).expect("Final encryption step failed");
+
+    println!("🔒 Ciphertext Length: {}", ciphertext.len());
 
     ciphertext.truncate(count);
-    hex::encode(&ciphertext)
+    ciphertext
 }
 
 
@@ -691,7 +719,8 @@ pub fn decrypt(
     Polynomial::new(decrypted_coeffs)
 }
 
-pub fn decrypt_string(sk_string: &String, ciphertext_string: &String, params: &Parameters) -> String {
+
+pub fn decrypt_string(sk_string: &String, ciphertext_string: &String, params: &Parameters) -> Vec<u8> {
     let sk_coeffs: Vec<i64> = sk_string
         .split(',')
         .filter_map(|x| x.parse::<i64>().ok())
@@ -722,28 +751,26 @@ pub fn decrypt_string(sk_string: &String, ciphertext_string: &String, params: &P
         );
     }
 
-    decrypted_message.trim_end_matches('\0').to_string()
+    let decoded_bytes = decode(decrypted_message.trim_end_matches('\0')).expect("Failed to decode Base64");
+    decoded_bytes
 }
 
 
 // ---------- AES Decryption ----------
-pub fn decrypt_aes_string(aes_key: &[u8; 32], iv: &[u8; 16], ciphertext_hex: &str) -> String {
+pub fn decrypt_aes(ciphertext: &[u8], key: &[u8], iv: &[u8]) -> String {
     let cipher = Cipher::aes_256_cbc();
-    let ciphertext = hex::decode(ciphertext_hex).expect("Invalid hex encoding");
+    let mut decrypter = Crypter::new(cipher, Mode::Decrypt, key, Some(iv))
+    .expect("Failed to create decrypter");
 
-    let mut decrypter = Crypter::new(cipher, Mode::Decrypt, aes_key, Some(iv))
-        .expect("Failed to create decryptor");
+    decrypter.pad(true); // ✅ Make sure this is set!
 
-    let mut decrypted_bytes = vec![0; ciphertext.len() + cipher.block_size()];
-    let mut count = decrypter.update(&ciphertext, &mut decrypted_bytes)
-        .expect("Decryption failed");
-    count += decrypter.finalize(&mut decrypted_bytes[count..])
-        .expect("Finalization failed");
+    let mut plaintext = vec![0; ciphertext.len() + cipher.block_size()];
+    let mut count = decrypter.update(ciphertext, &mut plaintext).expect("Decryption failed");
+    count += decrypter.finalize(&mut plaintext[count..]).expect("Final decryption step failed");
 
-    decrypted_bytes.truncate(count);
-    String::from_utf8(decrypted_bytes).expect("Decrypted text is not valid UTF-8")
+    plaintext.truncate(count);
+    String::from_utf8(plaintext).expect("Invalid UTF-8")
 }
-
 
 
 // ---------- Generate IV and Key ----------
