@@ -6,16 +6,12 @@ import RPi.GPIO as gpio
 from mfrc522 import SimpleMFRC522
 
 
-def write_rfid():
+def write_rfid(id: int):
     r = SimpleMFRC522()
 
-    def id_generator(size=5, chars=string.ascii_uppercase + string.digits):
-        return "".join(random.choice(chars) for _ in range(size))
-
     try:
-        data = id_generator()
-        print("Data for rfid is: ", data)
-        r.write(data)
+        print("Data for rfid is: ", id)
+        r.write(id)
         print("Write complete")
         return True
     except Exception as e:
@@ -45,9 +41,9 @@ def read_rfid():
 
 if __name__ == "__main__":
 
-    if len(sys.argv) > 1 and sys.argv[1] == "1":
+    if len(sys.argv) > 2 and sys.argv[1] == "1":
         print("Enrolling new user data")
-        write_rfid()
+        write_rfid(int(sys.argv[2]))
     else:
         print("Reading Token...")
         read_rfid()

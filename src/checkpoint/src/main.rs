@@ -16,13 +16,6 @@ use common::{Lcd, LCD_LINE_1, LCD_LINE_2};
 mod fingerprint;
 mod rfid;
 
-/****************
-    CONSTANTS
-****************/
-const RFID_PORT: &str = "/dev/ttyUSB0";
-const FINGERPRINT_PORT: &str = "/dev/ttyUSB1";
-const BAUD_RATE: u32 = 9600;
-
 /*
  * Name: init_lcd
  * Function: Wrapper function to initialize the LCD.
@@ -337,6 +330,23 @@ fn main() {
                                                 lcd.display_string("Enrolled", LCD_LINE_1);
                                                 lcd.display_string("Successfully", LCD_LINE_2);
                                             }
+                                            // If all goes well, give the worker an RFID tag with
+                                            // ID written on it.
+                                            let result =
+                                                rfid::write_rfid(enroll_reply_2.worker_id.unwrap());
+                                            match result {
+                                                Ok(rfid) => {
+                                                    if rfid {
+                                                        println!("Tag successfully written with Worker ID");
+                                                    } else {
+                                                        println!("Tag not written with Worker ID");
+                                                        return;
+                                                    }
+                                                }
+                                                Err(e) => {
+                                                    println!("Error with writing the RFID token");
+                                                }
+                                            }
                                         } else {
                                             eprintln!("Error enrolling user: {:?}", enroll_reply_2); // Debug log
                                             #[cfg(feature = "raspberry_pi")]
@@ -472,7 +482,12 @@ fn main() {
                             lcd.clear();
                         }
 
-                        let worker_id = 1;
+                        let worker_id = rfid::scan_rfid().unwrap_or(0);
+
+                        if worker_id == 0 {
+                            println!("Error with collecting RFID");
+                            continue;
+                        }
 
                         // Send information to port server
                         println!("Validating card...");
