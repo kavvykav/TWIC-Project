@@ -237,11 +237,11 @@ pub struct DatabaseReply {
 }
 
 impl DatabaseReply {
-    pub fn success() -> Self {
+    pub fn success(worker_id: u32) -> Self {
         DatabaseReply {
             status: "success".to_string(),
             checkpoint_id: None,
-            worker_id: None,
+            worker_id: Some(worker_id),
             worker_fingerprint: None,
             role_id: None,
             authorized_roles: None,

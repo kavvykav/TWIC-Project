@@ -633,6 +633,7 @@ fn handle_database_request(
     // Process the reply based on the command
     let reply = if db_reply.status == "success" {
         match request.command.as_str() {
+            "ENROLL" => DatabaseReply::success(db_reply.worker_id.unwrap()),
             "DELETE" => {
                 // Safely unwrap worker_id or return an error
                 let worker_id = request

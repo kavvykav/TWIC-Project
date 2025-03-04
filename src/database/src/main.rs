@@ -57,8 +57,6 @@ fn initialize_database() -> Result<Connection> {
         (999, 'AdminSystem', 'Admin')",
         [],
     )?;
-    
-    
 
     Ok(conn)
 }
@@ -167,9 +165,13 @@ async fn handle_port_server_request(
                 params![req.worker_name, req.worker_fingerprint, req.role_id, req.location],
             );
             // fetch id
+            let latest_id: i64 = conn
+                .query_row("SELECT LAST_INSERT_ROWID()", [], |row| row.get(0))
+                .unwrap();
+            let worker_id = latest_id as u32;
             match result {
-                Ok(_) => {
-                    return DatabaseReply::success();
+                Ok(id) => {
+                    return DatabaseReply::success(worker_id);
                 }
 
                 Err(e) => {
@@ -210,7 +212,7 @@ async fn handle_port_server_request(
             match result {
                 Ok(affected) => {
                     if affected > 0 {
-                        return DatabaseReply::success();
+                        return DatabaseReply::success(0);
                     } else {
                         println!("Affected users is zero");
                         return DatabaseReply::error();
