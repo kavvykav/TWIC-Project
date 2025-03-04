@@ -40,7 +40,7 @@ pub fn write_rfid(id: u32) -> Result<bool, String> {
                 .to_string();
 
             if result == "ERROR" {
-                Err("Failed to read RFID".to_string())
+                Err("Failed to write RFID".to_string())
             } else {
                 // Attempt to parse the result as an integer
                 match result.parse::<bool>() {
