@@ -1,6 +1,7 @@
 import time
 import RPi.GPIO as gpio
 from mfrc522 import SimpleMFRC522
+import sys
 
 def write_rfid(id: int):
     r = SimpleMFRC522()
@@ -18,11 +19,15 @@ def write_rfid(id: int):
 
             # Check for an RFID tag
             print("Place RFID tag near reader")
-            id_detected, data = r.read()  # This returns a tuple (id, data)
+            try:
+                id_detected, data = r.read()  # This returns a tuple (id, data)
+            except Exception as e:
+                print(f"Error reading RFID tag: {e}")
+                continue  # Skip to the next iteration if there's an error
 
-            if id_detected != 0:  # Tag detected
+            if id_detected is not None:  # Tag detected
                 print("RFID tag detected, proceeding to write...")
-                r.write(id)  # Write to the detected RFID tag
+                r.write(str(id))  # Write to the detected RFID tag
                 print("Write complete")
                 return True
 
@@ -52,7 +57,11 @@ def read_rfid():
 
             # Check for an RFID tag
             print("Place RFID tag near reader")
-            id, data = r.read()
+            try:
+                id, data = r.read()
+            except Exception as e:
+                print(f"Error reading RFID tag: {e}")
+                continue  # Skip to the next iteration if there's an error
 
             if id is not None:  # Successfully read an RFID tag
                 print(f"RFID Tag ID: {id}")
@@ -71,7 +80,6 @@ def read_rfid():
 
 
 if __name__ == "__main__":
-
     if len(sys.argv) > 2 and sys.argv[1] == "1":
         print("Enrolling new user data")
         write_rfid(int(sys.argv[2]))
