@@ -82,7 +82,8 @@ def read_rfid():
 if __name__ == "__main__":
     if len(sys.argv) > 2 and sys.argv[1] == "1":
         print("Enrolling new user data")
-        write_rfid(int(sys.argv[2]))
+        id_to_write = int(sys.argv[2])
+        write_rfid(id_to_write)
     else:
         print("Reading Token...")
         read_rfid()
