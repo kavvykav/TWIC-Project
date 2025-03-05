@@ -1,4 +1,4 @@
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::str;
 
 pub fn scan_rfid() -> Result<u32, String> {
@@ -30,6 +30,7 @@ pub fn write_rfid(id: u32) -> Result<bool, String> {
         .arg("rfid.py")
         .arg("1")
         .arg(id.to_string())
+        .stderr(Stdio::piped())
         .output();
 
     match output {

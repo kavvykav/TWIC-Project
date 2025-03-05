@@ -344,7 +344,7 @@ fn main() {
                                                     }
                                                 }
                                                 Err(e) => {
-                                                    println!("Error with writing the RFID token");
+                                                    println!("Error with writing the RFID token: {}", e);
                                                 }
                                             }
                                         } else {
