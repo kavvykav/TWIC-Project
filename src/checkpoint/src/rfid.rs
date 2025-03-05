@@ -1,81 +1,38 @@
 use std::process::Command;
-use std::str;
 
 pub fn write_rfid(id: u32) -> Result<bool, String> {
-    println!("Spawning Python script...");
     let output = Command::new("python3")
-        .arg("rfid.py")
-<<<<<<< HEAD
-        .arg("1") // Write mode
-        .arg(id.to_string()) // ID to write
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .map_err(|e| format!("Failed to execute RFID script: {}", e))?;
-=======
         .arg("1")
         .arg(id.to_string())
-        .output();
->>>>>>> parent of e81a177 (more bs)
-
-    // Capture stderr
-    let stderr = str::from_utf8(&output.stderr)
-        .map_err(|e| format!("Failed to decode script stderr: {}", e))?;
-
-    if !stderr.is_empty() {
-        println!("Python script stderr: {}", stderr);
-    }
-
-    // Capture stdout
-    let result = str::from_utf8(&output.stdout)
-        .map_err(|e| format!("Failed to decode script output: {}", e))?
-        .trim()
-        .to_string();
-
-    println!("Raw output from Python script: {:?}", result);
-
-    // Check for errors in the script output
-    if result == "ERROR" || result.is_empty() {
-        return Err("Failed to write RFID: Script error".to_string());
-    }
-
-    // Parse the result as a boolean (assuming the script returns "true" or "false")
-    match result.as_str() {
-        "true" => Ok(true),
-        "false" => Ok(false),
-        _ => Err(format!("Unexpected output from RFID script: {}", result)),
+        .output()
+        .map_err(|e| e.to_string())?;
+    if output.status.success() {
+        Ok(true)
+    } else {
+        Err(format!(
+            "Error: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ))
     }
 }
 
-pub fn read_rfid() -> Result<String, String> {
-    println!("Spawning Python script...");
+pub fn read_rfid() -> Result<u32, String> {
     let output = Command::new("python3")
-        .arg("rfid.py")
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .arg("rfid_script.py")
         .output()
-        .map_err(|e| format!("Failed to execute RFID script: {}", e))?;
+        .map_err(|e| e.to_string())?;
 
-    // Capture stderr
-    let stderr = str::from_utf8(&output.stderr)
-        .map_err(|e| format!("Failed to decode script stderr: {}", e))?;
-
-    if !stderr.is_empty() {
-        println!("Python script stderr: {}", stderr);
+    if output.status.success() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        if let Some(id) = stdout.lines().find_map(|line| line.parse::<u32>().ok()) {
+            Ok(id)
+        } else {
+            Err("Failed to parse RFID tag ID".to_string())
+        }
+    } else {
+        Err(format!(
+            "Error: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ))
     }
-
-    // Capture stdout
-    let result = str::from_utf8(&output.stdout)
-        .map_err(|e| format!("Failed to decode script output: {}", e))?
-        .trim()
-        .to_string();
-
-    println!("Raw output from Python script: {:?}", result);
-
-    // Check for errors in the script output
-    if result == "ERROR" || result.is_empty() {
-        return Err("Failed to read RFID: No tag detected or script error".to_string());
-    }
-
-    Ok(result)
 }
