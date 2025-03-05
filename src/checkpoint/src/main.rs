@@ -481,13 +481,19 @@ fn main() {
                             thread::sleep(Duration::from_secs(2));
                             lcd.clear();
                         }
+                        
+                        let worker_id: u32;
 
-                        let worker_id = rfid::scan_rfid().unwrap_or(0);
-
-                        if worker_id == 0 {
-                            println!("Error with collecting RFID");
-                            continue;
-                        }
+                        let mut result = match rfid::read_rfid() {
+                            Ok(val) => {
+                                worker_id = val;
+                            }
+                            Err(e) => {
+                                println!("Error reading RFID: {}", e);
+                                continue;
+                            }
+                        };
+                        
 
                         // Send information to port server
                         println!("Validating card...");

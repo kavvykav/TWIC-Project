@@ -2,6 +2,7 @@ use std::process::Command;
 
 pub fn write_rfid(id: u32) -> Result<bool, String> {
     let output = Command::new("python3")
+        .arg("rfid.py")
         .arg("1")
         .arg(id.to_string())
         .output()
@@ -18,13 +19,15 @@ pub fn write_rfid(id: u32) -> Result<bool, String> {
 
 pub fn read_rfid() -> Result<u32, String> {
     let output = Command::new("python3")
-        .arg("rfid_script.py")
+        .arg("rfid.py")
         .output()
         .map_err(|e| e.to_string())?;
 
     if output.status.success() {
         let stdout = String::from_utf8_lossy(&output.stdout);
-        if let Some(id) = stdout.lines().find_map(|line| line.parse::<u32>().ok()) {
+        println!("Raw stdout: {}", stdout);
+        let id_str = stdout.trim();
+        if let Ok(id) = id_str.parse::<u32>() {
             Ok(id)
         } else {
             Err("Failed to parse RFID tag ID".to_string())
