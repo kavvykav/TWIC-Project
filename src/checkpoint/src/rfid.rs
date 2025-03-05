@@ -1,16 +1,22 @@
-use std::process::{Command, Stdio};
+use std::process::Command;
 use std::str;
 
 pub fn write_rfid(id: u32) -> Result<bool, String> {
     println!("Spawning Python script...");
     let output = Command::new("python3")
         .arg("rfid.py")
+<<<<<<< HEAD
         .arg("1") // Write mode
         .arg(id.to_string()) // ID to write
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output()
         .map_err(|e| format!("Failed to execute RFID script: {}", e))?;
+=======
+        .arg("1")
+        .arg(id.to_string())
+        .output();
+>>>>>>> parent of e81a177 (more bs)
 
     // Capture stderr
     let stderr = str::from_utf8(&output.stderr)
