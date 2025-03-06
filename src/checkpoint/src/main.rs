@@ -525,6 +525,7 @@ fn main() {
                             }
                             continue;
                         } else {
+                            println!("RFID Authentication Succeeded: {:?}", auth_reply);
                             println!("Please scan your fingerprint");
                             #[cfg(feature = "raspberry_pi")]
                             {

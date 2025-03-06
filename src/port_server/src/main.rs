@@ -223,11 +223,11 @@ fn authenticate_rfid(
             Ok(response) => {
                 println!(
                     "RFID comparison: from checkpoint: {}, from database: {:?}",
-                    rfid, response.worker_id
+                    rfid, response.worker_id.unwrap_or(0)
                 );
                 println!("Response status: {}", response.status);
 
-                if response.status != "success".to_string() {
+                if response.status == "error".to_string() {
                     log_event(Some(*rfid), Some(*checkpoint), "RFID", "Failed");
                     return false;
                 }
@@ -254,7 +254,13 @@ fn authenticate_rfid(
 
                 let auth_successful = Some(rfid) == response.worker_id.as_ref()
                     && authorized_roles.contains(&role_str)
-                    && allowed_locations_vec.contains(&response.location.unwrap());
+                    && allowed_locations_vec.contains(&response.location.clone().unwrap());
+
+                println!("ID from DB: {}", response.worker_id.unwrap());
+                println!("Checkpoint authorized roles: {:?}", authorized_roles);
+                println!("User role: {}", role_str);
+                println!("User allowed locations: {:?}", allowed_locations_vec);
+                println!("Checkpoint location: {}", response.location.clone().unwrap());
 
                 if auth_successful {
                     log_event(Some(*rfid), Some(*checkpoint), "RFID", "Successful");
@@ -399,6 +405,7 @@ fn authenticate_fingerprint(
  * 4. Decipher response
 */
 fn query_database(database_addr: &str, request: &DatabaseRequest) -> Result<DatabaseReply, String> {
+    thread::sleep(Duration::from_secs(1));
     let request_json = serde_json::to_string(request)
         .map_err(|e| format!("Failed to serialize request: {}", e))?;
 
@@ -578,7 +585,8 @@ fn handle_authenticate(
     let client = clients.get_mut(&client_id).ok_or("Client not found")?;
 
     println!("Worker ID is {}", request.worker_id.unwrap());
-
+    
+    let next_state: CheckpointState;
     let response = match client.state {
         CheckpointState::WaitForRfid => {
             if authenticate_rfid(
@@ -586,10 +594,10 @@ fn handle_authenticate(
                 &request.worker_id,
                 &request.checkpoint_id,
             ) {
-                client.state = CheckpointState::WaitForFingerprint;
+                next_state = CheckpointState::WaitForFingerprint;
                 CheckpointReply::auth_reply(CheckpointState::WaitForFingerprint)
             } else {
-                client.state = CheckpointState::AuthFailed;
+                next_state = CheckpointState::AuthFailed;
                 CheckpointReply::auth_reply(CheckpointState::AuthFailed)
             }
         }
@@ -600,19 +608,19 @@ fn handle_authenticate(
                 &request.worker_fingerprint,
                 &request.checkpoint_id,
             ) {
-                client.state = CheckpointState::AuthSuccessful;
+                next_state = CheckpointState::AuthSuccessful;
                 CheckpointReply::auth_reply(CheckpointState::AuthSuccessful)
             } else {
-                client.state = CheckpointState::AuthFailed;
+                next_state = CheckpointState::AuthFailed;
                 CheckpointReply::auth_reply(CheckpointState::AuthFailed)
             }
         }
         CheckpointState::AuthSuccessful | CheckpointState::AuthFailed => {
-            thread::sleep(Duration::from_secs(5));
-            client.state = CheckpointState::WaitForRfid;
+            next_state = CheckpointState::WaitForRfid;
             CheckpointReply::auth_reply(CheckpointState::WaitForRfid)
         }
     };
+    client.state = next_state;
 
     send_response(&response, stream)
 }
@@ -789,13 +797,6 @@ fn main() -> Result<(), rusqlite::Error> {
     // Database Initialization
     let database = initialize_database()?;
     let database = Arc::new(Mutex::new(database));
-
-    // Handle Ctrl+C for graceful shutdown
-    ctrlc::set_handler(move || {
-        println!("\nShutting down server...");
-        running_clone.store(false, Ordering::SeqCst);
-    })
-    .expect("Error setting Ctrl+C handler");
 
     let mut client_id_counter = 0;
 

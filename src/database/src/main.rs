@@ -99,6 +99,12 @@ async fn handle_port_server_request(
                 req.checkpoint_id.unwrap_or_default()
             );
 
+            // If employee does not exist send back an error
+            if !employee_exists(&conn, req.worker_id.unwrap()).unwrap() {
+               println!("Worker des not exist");
+               return DatabaseReply::error();
+            }
+ 
             // Fetch checkpoint data
             let checkpoint_data: Result<(String, String), _> = conn.query_row(
                 "SELECT location, allowed_roles FROM checkpoints WHERE id = ?1",
@@ -229,6 +235,16 @@ async fn handle_port_server_request(
             return DatabaseReply::error();
         }
     }
+}
+
+/*
+ * Name: employee_exists
+ * Function: Check if employee exists in the database.
+ */
+fn employee_exists(conn: &Connection, id: u32) -> Result<bool> {
+    let mut stmt = conn.prepare("SELECT 1 FROM employees WHERE id = ? LIMIT 1")?;
+    let mut rows = stmt.query(params![id])?;
+    Ok(rows.next()?.is_some())
 }
 
 /*
