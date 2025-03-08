@@ -50,6 +50,7 @@ pub struct CheckpointReply {
     pub fingerprint: Option<String>,
     pub data: Option<String>,
     pub auth_response: Option<CheckpointState>,
+    pub rfid_ver: Option<bool>,
 }
 
 #[derive(Serialize, Clone, Deserialize, Debug)]
@@ -168,6 +169,7 @@ impl CheckpointReply {
             fingerprint: None,
             data: None,
             auth_response: None,
+            rfid_ver: Some(false),
         };
     }
     pub fn auth_reply(state: CheckpointState) -> Self {
@@ -178,6 +180,7 @@ impl CheckpointReply {
             fingerprint: None,
             data: None,
             auth_response: Some(state),
+            rfid_ver: Some(true),
         };
     }
 
@@ -189,6 +192,7 @@ impl CheckpointReply {
             fingerprint: None,
             data: None,
             auth_response: None,
+            rfid_ver: None,
         };
     }
 }

@@ -223,7 +223,8 @@ fn authenticate_rfid(
             Ok(response) => {
                 println!(
                     "RFID comparison: from checkpoint: {}, from database: {:?}",
-                    rfid, response.worker_id.unwrap_or(0)
+                    rfid,
+                    response.worker_id.unwrap_or(0)
                 );
                 println!("Response status: {}", response.status);
 
@@ -260,7 +261,10 @@ fn authenticate_rfid(
                 println!("Checkpoint authorized roles: {:?}", authorized_roles);
                 println!("User role: {}", role_str);
                 println!("User allowed locations: {:?}", allowed_locations_vec);
-                println!("Checkpoint location: {}", response.location.clone().unwrap());
+                println!(
+                    "Checkpoint location: {}",
+                    response.location.clone().unwrap()
+                );
 
                 if auth_successful {
                     log_event(Some(*rfid), Some(*checkpoint), "RFID", "Successful");
@@ -585,7 +589,7 @@ fn handle_authenticate(
     let client = clients.get_mut(&client_id).ok_or("Client not found")?;
 
     println!("Worker ID is {}", request.worker_id.unwrap());
-    
+
     let next_state: CheckpointState;
     let response = match client.state {
         CheckpointState::WaitForRfid => {
@@ -594,11 +598,18 @@ fn handle_authenticate(
                 &request.worker_id,
                 &request.checkpoint_id,
             ) {
-                next_state = CheckpointState::WaitForFingerprint;
-                CheckpointReply::auth_reply(CheckpointState::WaitForFingerprint)
-            } else {
-                next_state = CheckpointState::AuthFailed;
-                CheckpointReply::auth_reply(CheckpointState::AuthFailed)
+                if Some(client.worker_id) == request.worker_id {
+                    next_state = CheckpointState::WaitForFingerprint;
+                    CheckpointReply::auth_reply(CheckpointState::WaitForFingerprint)
+                } else {
+                    eprintln!(
+                        "Mismatched Worker ID: DB Stored: {:?}, rfid scanned {:?}",
+                        Some(client.worker_id),
+                        request.worker_id
+                    );
+                    next_state = CheckpointState::AuthFailed;
+                    CheckpointReply::auth_reply(CheckpointState::AuthFailed)
+                }
             }
         }
         CheckpointState::WaitForFingerprint => {
