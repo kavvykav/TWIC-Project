@@ -50,7 +50,7 @@ fn send_and_receive(
     request: &CheckpointRequest,
     pending_requests: Arc<Mutex<HashMap<String, u32>>>,
     admin_id: u32,
-    rfid_ver: bool,
+    rfid_ver: Option<bool>,
 ) -> CheckpointReply {
     println!("Sending request: {:?}", request); // Debug log
 
@@ -244,6 +244,8 @@ fn main() {
 
     // Send an init request to register in the database
     let init_req = CheckpointRequest::init_request(location.clone(), authorized_roles);
+
+    let rfid_ver = Some(false);
 
     let mut init_reply: CheckpointReply = send_and_receive(
         &mut stream,
@@ -533,7 +535,7 @@ fn main() {
                             rfid_ver,
                         );
 
-                        if rfid_ver {
+                        if rfid_ver.unwrap_or(true) {
                             if let Some(CheckpointState::AuthFailed) = auth_reply.auth_response {
                                 eprintln!("RFID Authentication failed: {:?}", auth_reply); // Debug log
                                 println!("Authentication failed.");
@@ -559,7 +561,7 @@ fn main() {
                                 }
                             }
                         } else {
-                            println("RFID Data Mismatch")
+                            println!("RFID Data Mismatch")
                         }
                         // Collect fingerprint data
                         let worker_fingerprint = "dummy fingerprint".to_string();
