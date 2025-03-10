@@ -612,9 +612,6 @@ fn handle_authenticate(
                             scanned_worker_id
                         );
 
-                        // Store authenticated worker ID
-                        client.authenticated_worker_id = scanned_worker_id;
-
                         next_state = CheckpointState::WaitForFingerprint;
                         CheckpointReply {
                             status: "success".to_string(),
