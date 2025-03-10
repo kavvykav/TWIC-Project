@@ -593,22 +593,67 @@ fn handle_authenticate(
     let next_state: CheckpointState;
     let response = match client.state {
         CheckpointState::WaitForRfid => {
-            if authenticate_rfid(
-                &conn.lock().unwrap(),
-                &request.worker_id,
-                &request.checkpoint_id,
-            ) {
-                if Some(client.worker_id) == request.worker_id {
-                    next_state = CheckpointState::WaitForFingerprint;
-                    CheckpointReply::auth_reply(CheckpointState::WaitForFingerprint)
-                } else {
-                    eprintln!(
-                        "Mismatched Worker ID: DB Stored: {:?}, rfid scanned {:?}",
-                        Some(client.worker_id),
-                        request.worker_id
+            match query_database(DATABASE_ADDR, &request) {
+                Ok(db_response) => {
+                    let scanned_worker_id = request.worker_id; // ID from Checkpoint
+                    let db_worker_id = db_response.worker_id; // ID from Database
+
+                    println!(
+                        "Checkpoint Scanned Worker ID: {:?}, Database Worker ID: {:?}",
+                        scanned_worker_id, db_worker_id
                     );
+
+                    if scanned_worker_id.is_some()
+                        && db_worker_id.is_some()
+                        && scanned_worker_id == db_worker_id
+                    {
+                        println!(
+                            "RFID Verified: {:?} matches database entry.",
+                            scanned_worker_id
+                        );
+
+                        // Store authenticated worker ID
+                        client.authenticated_worker_id = scanned_worker_id;
+
+                        next_state = CheckpointState::WaitForFingerprint;
+                        CheckpointReply {
+                            status: "success".to_string(),
+                            checkpoint_id: request.checkpoint_id,
+                            worker_id: scanned_worker_id,
+                            fingerprint: None,
+                            data: None,
+                            auth_response: Some(CheckpointState::WaitForFingerprint),
+                            rfid_ver: Some(true),
+                        }
+                    } else {
+                        eprintln!(
+                            "RFID Mismatch: Checkpoint ID: {:?}, Database ID: {:?}",
+                            scanned_worker_id, db_worker_id
+                        );
+                        next_state = CheckpointState::AuthFailed;
+                        CheckpointReply {
+                            status: "failed".to_string(),
+                            checkpoint_id: request.checkpoint_id,
+                            worker_id: None,
+                            fingerprint: None,
+                            data: None,
+                            auth_response: Some(CheckpointState::AuthFailed),
+                            rfid_ver: Some(false),
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Error querying database: {}", e);
                     next_state = CheckpointState::AuthFailed;
-                    CheckpointReply::auth_reply(CheckpointState::AuthFailed)
+                    CheckpointReply {
+                        status: "error".to_string(),
+                        checkpoint_id: request.checkpoint_id,
+                        worker_id: None,
+                        fingerprint: None,
+                        data: None,
+                        auth_response: Some(CheckpointState::AuthFailed),
+                        rfid_ver: Some(false),
+                    }
                 }
             }
         }
