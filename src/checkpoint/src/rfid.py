@@ -11,7 +11,7 @@ def write_rfid(id: int):
     r = SimpleMFRC522()
 
     try:
-        ct_us = datetime.now().timestamp() * 1_000_000
+        ct_us = int(datetime.now().timestamp() * 1_000_000)
         print("Data for rfid is: ", ct_us)
         r.write(str(ct_us))
         print("Write complete")
