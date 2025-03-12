@@ -9,7 +9,7 @@ def write_rfid():
     r = SimpleMFRC522()
 
     try:
-        ct_us = int(datetime.now().timestamp() * 1_000_000)
+        ct_us = int(datetime.now().timestamp())
         r.write(str(ct_us))
         print(ct_us)
     except Exception as e:
