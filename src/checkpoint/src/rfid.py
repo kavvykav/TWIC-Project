@@ -35,7 +35,7 @@ def read_rfid():
 
 if __name__ == "__main__":
 
-    if sys.argv[1] == "1":
+    if len(sys.argv) > 1:
         write_rfid()
     else:
         rfid_conf = read_rfid()
