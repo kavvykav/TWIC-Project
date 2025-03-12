@@ -12,9 +12,8 @@ def write_rfid(id: int):
 
     try:
         ct_us = int(datetime.now().timestamp() * 1_000_000)
-        print("Data for rfid is: ", ct_us)
+        print(ct_us)
         r.write(str(ct_us))
-        print("Write complete")
     except Exception as e:
         print(f"error: {e}")
     finally:
@@ -41,4 +40,3 @@ if __name__ == "__main__":
         write_rfid(int(sys.argv[2]))
     else:
         rfid_conf = read_rfid()
-        print(rfid_conf)
