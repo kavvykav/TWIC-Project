@@ -1,5 +1,3 @@
-import random
-import string
 import sys
 from datetime import datetime
 
@@ -7,13 +5,13 @@ import RPi.GPIO as gpio
 from mfrc522 import SimpleMFRC522
 
 
-def write_rfid(id: int):
+def write_rfid():
     r = SimpleMFRC522()
 
     try:
         ct_us = int(datetime.now().timestamp() * 1_000_000)
-        print(ct_us)
         r.write(str(ct_us))
+        print(ct_us)
     except Exception as e:
         print(f"error: {e}")
     finally:
@@ -25,8 +23,9 @@ def read_rfid():
     r = SimpleMFRC522()
     try:
         id, data = r.read()
-        print(f"{data}")
-        return data
+        extr_data = int(data.strip())
+        print(extr_data)
+        return extr_data
     except Exception as e:
         print(f"Error: {e}")
         return None
@@ -36,7 +35,7 @@ def read_rfid():
 
 if __name__ == "__main__":
 
-    if len(sys.argv) > 2 and sys.argv[1] == "1":
-        write_rfid(int(sys.argv[2]))
+    if sys.argv[1] == "1":
+        write_rfid()
     else:
         rfid_conf = read_rfid()

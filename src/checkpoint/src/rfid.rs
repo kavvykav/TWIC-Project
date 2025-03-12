@@ -17,7 +17,7 @@ pub fn write_rfid(id: u32) -> Result<bool, String> {
     }
 }
 
-pub fn read_rfid() -> Result<u64, String> {
+pub fn read_rfid() -> Result<u32, String> {
     let output = Command::new("python3")
         .arg("rfid.py")
         .output()
@@ -32,7 +32,7 @@ pub fn read_rfid() -> Result<u64, String> {
         // Ensure the data is numeric before parsing
         if data_str.chars().all(|c| c.is_digit(10)) {
             data_str
-                .parse::<u64>()
+                .parse::<u32>()
                 .map_err(|e| format!("Parse error: {}", e))
         } else {
             Err(format!(
