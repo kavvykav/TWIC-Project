@@ -1,3 +1,4 @@
+import random
 import sys
 import time
 
@@ -60,7 +61,7 @@ if __name__ == "__main__":
     if sys.argv[1] == "1":
         get_fp()
     elif sys.argv[1] == "2":
-        fp_id = int(input("enter an ID (1-127): "))
+        fp_id = random.randint(1, 127)  # To be changed. Can't stay random.
         enroll_fp(fp_id)
     else:
         print("No such option")

@@ -564,12 +564,14 @@ fn main() {
                             println!("RFID Data Mismatch")
                         }
                         // Collect fingerprint data
-                        let worker_fingerprint = "dummy fingerprint".to_string();
-                        let fingerprint_auth_request = CheckpointRequest::fingerprint_auth_req(
-                            checkpoint_id,
-                            worker_id,
-                            worker_fingerprint,
-                        );
+
+                        let worker_fingerprint = match fingerprint::scan_fingerprint() {
+                            Ok(fingerprint_id) => fingerprint_id.to_string(),
+                            Err(e) => {
+                                println!("Error scanning fingerprint: {}", e);
+                                continue;
+                            }
+                        };
                         let fingerprint_auth_reply: CheckpointReply = send_and_receive(
                             &mut stream,
                             &fingerprint_auth_request,
