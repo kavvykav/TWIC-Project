@@ -8,6 +8,10 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::sync::Mutex;
 
+// TODO: Make fingerprint an int between 1-127
+// TODO: Use timestamp to validate token ID
+// TODO: Ask silliam wtf he means by any of that
+
 /*
 * Name: initialize_database
 * Function: initializes the centralized database by creating all the tables,
@@ -57,8 +61,6 @@ fn initialize_database() -> Result<Connection> {
         (999, 'AdminSystem', 'Admin')",
         [],
     )?;
-    
-    
 
     Ok(conn)
 }
