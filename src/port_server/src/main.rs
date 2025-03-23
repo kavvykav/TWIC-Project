@@ -64,6 +64,12 @@ fn initialize_database() -> Result<Connection> {
         )",
         [],
     )?;
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS fingerprint_ids (
+            employee_id INTEGER PRIMARY KEY,
+        )",
+        [],
+    )?;
 
     Ok(conn)
 }
