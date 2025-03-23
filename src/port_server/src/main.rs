@@ -554,6 +554,7 @@ fn parse_command_from_request(
  * Function: Handler for a checkpoint init_request.
  */
 fn handle_init_request(
+    // TODO: add a column to fingerprint_ids table when a checkpoint initializes
     conn: &Arc<Mutex<Connection>>,
     request: DatabaseRequest,
     stream: &Arc<Mutex<TcpStream>>,
