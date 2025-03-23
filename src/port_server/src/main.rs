@@ -27,6 +27,7 @@ const LOG_FILE: &str = "auth.log";
  */
 fn initialize_database() -> Result<Connection> {
     let conn = Connection::open("port_server_db.db")?;
+    // TODO: Table containing employee IDs and their fingerprint IDs for each checkpoint
 
     conn.execute(
         "CREATE TABLE IF NOT EXISTS roles (
