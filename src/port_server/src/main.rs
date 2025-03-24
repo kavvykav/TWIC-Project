@@ -67,7 +67,7 @@ fn initialize_database() -> Result<Connection> {
     conn.execute(
         "CREATE TABLE IF NOT EXISTS fingerprint_ids (
             employee_id INTEGER NOT NULL,
-            fingerprint_id INTEGER NOT NULL UNIQUE,
+            fingerprint_id INTEGER NOT NULL,
             checkpoint_id INTEGER NOT NULL,
             FOREIGN KEY (employee_id) REFERENCES employees(id),
             FOREIGN KEY (checkpoint_id) REFERENCES checkpoints(id)
