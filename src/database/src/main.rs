@@ -35,7 +35,7 @@ fn initialize_database() -> Result<Connection> {
         "CREATE TABLE IF NOT EXISTS employees (
             id INTEGER PRIMARY KEY,
             name TEXT NOT NULL,
-            fingerprint_hash TEXT NOT NULL,
+            fingerprint_ids TEXT NOT NULL,
             role_id INTEGER NOT NULL,
             allowed_locations TEXT NOT NULL,
             FOREIGN KEY (role_id) REFERENCES roles (id)
@@ -101,10 +101,10 @@ async fn handle_port_server_request(
 
             // If employee does not exist send back an error
             if !employee_exists(&conn, req.worker_id.unwrap()).unwrap() {
-               println!("Worker des not exist");
-               return DatabaseReply::error();
+                println!("Worker des not exist");
+                return DatabaseReply::error();
             }
- 
+
             // Fetch checkpoint data
             let checkpoint_data: Result<(String, String), _> = conn.query_row(
                 "SELECT location, allowed_roles FROM checkpoints WHERE id = ?1",

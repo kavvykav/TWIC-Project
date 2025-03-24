@@ -48,7 +48,7 @@ fn initialize_database() -> Result<Connection> {
         "CREATE TABLE IF NOT EXISTS employees (
             id INTEGER PRIMARY KEY,
             name TEXT NOT NULL,
-            fingerprint_hash TEXT NOT NULL,
+            fingerprint_ids TEXT NOT NULL,
             role_id INTEGER NOT NULL,
             allowed_locations TEXT NOT NULL,
             FOREIGN KEY (role_id) REFERENCES roles (id)
@@ -91,7 +91,7 @@ fn add_to_local_db(
 ) -> Result<(), rusqlite::Error> {
     // Insert worker data into the employees table
     conn.execute(
-        "INSERT INTO employees (id, name, fingerprint_hash, role_id, allowed_locations) VALUES (?1, ?2, ?3, ?4, ?5)",
+        "INSERT INTO employees (id, name, fingerprint_ids, role_id, allowed_locations) VALUES (?1, ?2, ?3, ?4, ?5)",
         params![id, name, fingerprint_ids, role_id, allowed_locations],
     )?;
 
@@ -294,16 +294,16 @@ fn authenticate_rfid(
 fn authenticate_fingerprint(
     conn: &Connection,
     rfid_tag: &Option<u32>,
-    fingerprint_hash: &Option<String>,
+    fingerprint_ids: &Option<String>,
     checkpoint_id: &Option<u32>,
 ) -> bool {
     if let (Some(rfid), Some(fingerprint), Some(checkpoint)) =
-        (rfid_tag, fingerprint_hash, checkpoint_id)
+        (rfid_tag, fingerprint_ids, checkpoint_id)
     {
         if check_local_db(conn, *rfid).unwrap_or(false) {
             // Get stored fingerprint hash from local database
             let mut stmt = match conn.prepare(
-                "SELECT fingerprint_hash
+                "SELECT fingerprint_ids
                  FROM employees
                  WHERE employees.id = ?",
             ) {
@@ -943,7 +943,7 @@ mod tests {
             "CREATE TABLE employees (
                 id INTEGER PRIMARY KEY,
                 name TEXT NOT NULL,
-                fingerprint_hash TEXT NOT NULL,
+                fingerprint_ids TEXT NOT NULL,
                 role_id INTEGER NOT NULL,
                 allowed_locations TEXT NOT NULL,
                 FOREIGN KEY (role_id) REFERENCES roles (id)
@@ -971,7 +971,7 @@ mod tests {
 
         // Insert test employees
         conn.execute(
-            "INSERT INTO employees (id, name, fingerprint_hash, role_id, allowed_locations) VALUES 
+            "INSERT INTO employees (id, name, fingerprint_ids, role_id, allowed_locations) VALUES 
             (1, 'John Doe', 'hash1', 1, 'Location1,Location2'),
             (2, 'Jane Doe', 'hash2', 2, 'Location2')",
             [],
