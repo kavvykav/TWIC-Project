@@ -10,10 +10,9 @@ serialport = "4.0"
 serde_json = "1.0.135"
 serde = { version = "1.0.217", features = ["derive"] }
 common = { path = "../common" }
-pyo3 = { version = "0.21", features = ["extension-module"] }
 rand = "0.8"
 tokio = { version = "1", features = ["full"] }
-rppal = "0.14"
+
 
 [features]
 raspberry_pi = []

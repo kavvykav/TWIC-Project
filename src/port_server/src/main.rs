@@ -66,11 +66,14 @@ fn initialize_database() -> Result<Connection> {
     )?;
     conn.execute(
         "CREATE TABLE IF NOT EXISTS fingerprint_ids (
-            employee_id INTEGER PRIMARY KEY,
+            employee_id INTEGER NOT NULL,
+            fingerprint_id INTEGER NOT NULL UNIQUE,
+            checkpoint_id INTEGER NOT NULL,
+            FOREIGN KEY (employee_id) REFERENCES employees(id),
+            FOREIGN KEY (checkpoint_id) REFERENCES checkpoints(id)
         )",
         [],
     )?;
-
     Ok(conn)
 }
 
@@ -95,11 +98,18 @@ fn add_to_local_db(
     fingerprint_hash: String,
     role_id: i32,
     allowed_locations: String,
+    fingerprint_id: u32,
+    checkpoint_id: u32,
 ) -> Result<(), rusqlite::Error> {
     // Insert worker data into the employees table
     conn.execute(
         "INSERT INTO employees (id, name, fingerprint_hash, role_id, allowed_locations) VALUES (?1, ?2, ?3, ?4, ?5)",
         params![id, name, fingerprint_hash, role_id, allowed_locations],
+    )?;
+
+    conn.execute(
+        "INSERT INTO fingerprint_ids (employee_id, fingerprint_id, checkpoint_id) VALUES (?1, ?2, ?3)",
+        params![id, fingerprint_id, checkpoint_id], 
     )?;
     Ok(())
 }
@@ -320,13 +330,28 @@ fn authenticate_fingerprint(
                 }
             };
 
-            let stored_fingerprint: String = match stmt.query_row([rfid], |row| row.get(0)) {
-                Ok(fp) => fp,
-                Err(_) => {
-                    log_event(Some(*rfid), Some(*checkpoint), "Fingerprint", "Failed");
-                    return false;
+            let stored_fp_id: Option<u32> = conn.query_row(
+                "SELECT fingerprint_id FROM fingerprint_ids WHERE employee_id = ?1 AND checkpoint_id = ?2",
+                params![rfid, checkpoint],
+                |row| row.get(0),
+            ).ok();
+            
+            if stored_fp_id.is_none() {
+                log_event(Some(*rfid), Some(*checkpoint), "Fingerprint", "Failed");
+                return false;
+            }
+            
+            // If found a valid ID, check if it matches the scanned one
+            if let Some(valid_fp_id) = stored_fp_id {
+                if valid_fp_id == fingerprint.parse().unwrap_or(0) {
+                    log_event(Some(*rfid), Some(*checkpoint), "Fingerprint", "Successful");
+                    return true;
                 }
-            };
+            }
+            
+            log_event(Some(*rfid), Some(*checkpoint), "Fingerprint", "Failed");
+            false
+            
 
             if fingerprint == &stored_fingerprint {
                 log_event(Some(*rfid), Some(*checkpoint), "Fingerprint", "Successful");

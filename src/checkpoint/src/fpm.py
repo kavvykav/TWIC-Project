@@ -61,7 +61,18 @@ if __name__ == "__main__":
     if sys.argv[1] == "1":
         get_fp()
     elif sys.argv[1] == "2":
-        fp_id = random.randint(1, 127)  # To be changed. Can't stay random.
-        enroll_fp(fp_id)
+        if len(sys.argv) < 3:
+            print("Error: Fingerprint ID is required for enrollment")
+            sys.exit(1)
+
+        try:
+            fp_id = int(sys.argv[2])  # Get fingerprint ID from main.rs
+            checkpoint_id = int(sys.argv[3])  # Get checkpoint ID from main.rs
+        except ValueError:
+            print("Error: Invalid fingerprint or checkpoint ID")
+            sys.exit(1)
+
+        enroll_fp(fp_id, checkpoint_id)
+
     else:
         print("No such option")
