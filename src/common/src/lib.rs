@@ -54,7 +54,7 @@ pub enum CheckpointState {
 pub struct CheckpointReply {
     pub status: String,
     pub checkpoint_id: Option<u32>,
-    pub worker_id: Option<u32>,
+    pub worker_id: Option<u64>,
     pub fingerprint: Option<String>,
     pub data: Option<String>,
     pub auth_response: Option<CheckpointState>,
@@ -236,7 +236,7 @@ pub struct Client {
 pub struct DatabaseRequest {
     pub command: String,
     pub checkpoint_id: Option<u32>,
-    pub worker_id: Option<u32>,
+    pub worker_id: Option<u64>,
     pub rfid_data: Option<u32>,
     pub worker_name: Option<String>,
     pub worker_fingerprint: Option<String>,
@@ -254,7 +254,7 @@ pub struct DatabaseRequest {
 pub struct DatabaseReply {
     pub status: String,
     pub checkpoint_id: Option<u32>,
-    pub worker_id: Option<u32>,
+    pub worker_id: Option<u64>,
     pub worker_fingerprint: Option<String>,
     pub role_id: Option<u32>,
     pub authorized_roles: Option<String>,
@@ -268,7 +268,7 @@ pub struct DatabaseReply {
 }
 
 impl DatabaseReply {
-    pub fn success(worker_id: u32) -> Self {
+    pub fn success(worker_id: u64) -> Self {
         DatabaseReply {
             status: "success".to_string(),
             checkpoint_id: None,
@@ -323,7 +323,7 @@ impl DatabaseReply {
     }
     pub fn auth_reply(
         checkpoint_id: u32,
-        worker_id: u32,
+        worker_id: u64,
         worker_fingerprint: String,
         role_id: u32,
         authorized_roles: String,

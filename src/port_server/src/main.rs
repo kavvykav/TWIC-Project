@@ -202,12 +202,11 @@ fn set_stream_timeout(stream: &std::net::TcpStream, duration: Duration) {
 */
 fn authenticate_rfid(
     conn: &Connection,
-    rfid_tag: &Option<u32>,
+    rfid_tag: &Option<u64>,
     checkpoint_id: &Option<u32>,
 ) -> bool {
     if let (Some(rfid), Some(checkpoint)) = (rfid_tag, checkpoint_id) {
-        let rfid_64 = u64::from(*rfid);
-        if check_local_db(conn, rfid_64).unwrap_or(false) {
+        if check_local_db(conn, *rfid).unwrap_or(false) {
             println!("Found worker in local database");
             let mut stmt = match conn.prepare(
                 "SELECT roles.name
@@ -217,12 +216,12 @@ fn authenticate_rfid(
             ) {
                 Ok(stmt) => stmt,
                 Err(_) => {
-                    log_event(rfid_tag.map(|id| id.into()), checkpoint_id.map(|id| id.into()), "RFID", "Failed");
+                    log_event(Some(*rfid), Some(*checkpoint), "RFID", "Failed");
                     return false;
                 }
             };
 
-            let role_name: String = match stmt.query_row([rfid_64], |row| row.get(0)) {
+            let role_name: String = match stmt.query_row([rfid], |row| row.get(0)) {
                 Ok(role) => role,
                 Err(_) => {
                     log_event(rfid_tag.map(|id| id.into()), checkpoint_id.map(|id| id.into()), "RFID", "Failed");
@@ -289,7 +288,7 @@ fn authenticate_rfid(
                 println!("Response status: {}", response.status);
 
                 if response.status == "error".to_string() {
-                    log_event(Some(u64::from(*rfid)), Some(u64::from(*checkpoint)), "RFID", "Failed");
+                    log_event(Some(u64::from(*rfid)), Some(u32::from(*checkpoint)), "RFID", "Failed");
                     return false;
                 }
 
@@ -326,9 +325,9 @@ fn authenticate_rfid(
                 );
 
                 if auth_successful {
-                    log_event(Some(u64::from(*rfid)), Some(u64::from(*checkpoint)), "RFID", "Successful");
+                    log_event(Some(u64::from(*rfid)), Some(u32::from(*checkpoint)), "RFID", "Successful");
                 } else {
-                    log_event(Some(u64::from(*rfid)), Some(u64::from(*checkpoint)), "RFID", "Failed");
+                    log_event(Some(u64::from(*rfid)), Some(u32::from(*checkpoint)), "RFID", "Failed");
                 }
 
                 return auth_successful;
@@ -351,7 +350,7 @@ fn authenticate_rfid(
 */
 fn authenticate_fingerprint(
     conn: &Connection,
-    rfid_tag: &Option<u32>,
+    rfid_tag: &Option<u64>,
     fingerprint_ids: &Option<String>,
     checkpoint_id: &Option<u32>,
 ) -> bool {
@@ -373,22 +372,22 @@ fn authenticate_fingerprint(
                 .map(|id| id as u32);
             
             if stored_fp_id.is_none() {
-                log_event(Some(u64::from(*rfid)), Some(u64::from(*checkpoint)), "Fingerprint", "Failed");
+                log_event(Some(u64::from(*rfid)), Some(u32::from(*checkpoint)), "Fingerprint", "Failed");
                 return false;
             }
 
             if let Some(valid_fp_id) = stored_fp_id {
                 if valid_fp_id == fingerprint.parse().unwrap_or(0) {
-                    log_event(Some(u64::from(*rfid)), Some(u64::from(*checkpoint)), "Fingerprint", "Successful");
+                    log_event(Some(u64::from(*rfid)), Some(u32::from(*checkpoint)), "Fingerprint", "Successful");
                     return true;
                 }
             }
 
             if fingerprint.parse::<u32>().unwrap_or(0) == stored_fp_id.unwrap_or(9999) {
-                log_event(Some(u64::from(*rfid)), Some(u64::from(*checkpoint)), "Fingerprint", "Successful");
+                log_event(Some(u64::from(*rfid)), Some(u32::from(*checkpoint)), "Fingerprint", "Successful");
                 return true;
             } else {
-                log_event(Some(u64::from(*rfid)), Some(u64::from(*checkpoint)), "Fingerprint", "Failed");
+                log_event(Some(u64::from(*rfid)), Some(u32::from(*checkpoint)), "Fingerprint", "Failed");
                 return false;
             }
         }
@@ -397,7 +396,7 @@ fn authenticate_fingerprint(
             command: "AUTHENTICATE".to_string(),
             checkpoint_id: Some(*checkpoint),
             worker_id: None,
-            rfid_data: Some(*rfid),
+            rfid_data: Some((*rfid).try_into().unwrap()),
             worker_fingerprint: Some(fingerprint.clone()),
             location: None,
             authorized_roles: None,
@@ -420,7 +419,7 @@ fn authenticate_fingerprint(
                 );
 
                 if response.status != "success".to_string() {
-                    log_event(Some(u64::from(*rfid)), Some(u64::from(*checkpoint)), "Fingerprint", "Failed");
+                    log_event(Some(u64::from(*rfid)), Some(u32::from(*checkpoint)), "Fingerprint", "Failed");
                     return false;
                 }
 
@@ -437,7 +436,7 @@ fn authenticate_fingerprint(
                         response.allowed_locations.unwrap(),
                     ) {
                         Ok(_) => {
-                            log_event(Some(u64::from(*rfid)), Some(u64::from(*checkpoint)), "Fingerprint", "Successful");
+                            log_event(Some(u64::from(*rfid)), Some(u32::from(*checkpoint)), "Fingerprint", "Successful");
                             return true;
                         }
                         Err(e) => {
@@ -445,18 +444,18 @@ fn authenticate_fingerprint(
                                 "An error occurred with adding the user to the database : {}",
                                 e
                             );
-                            log_event(Some(u64::from(*rfid)), Some(u64::from(*checkpoint)), "Fingerprint", "Failed");
+                            log_event(Some(u64::from(*rfid)), Some(u32::from(*checkpoint)), "Fingerprint", "Failed");
                             return true;
                         }
                     }
                 } else {
-                    log_event(Some(u64::from(*rfid)), Some(u64::from(*checkpoint)), "Fingerprint", "Failed");
+                    log_event(Some(u64::from(*rfid)), Some(u32::from(*checkpoint)), "Fingerprint", "Failed");
                     return false;
                 }
             }
             Err(e) => {
                 eprintln!("Error querying database for fingerprint hash: {}", e);
-                log_event(Some(u64::from(*rfid)), Some(u64::from(*checkpoint)), "Fingerprint", "Failed");
+                log_event(Some(u64::from(*rfid)), Some(u32::from(*checkpoint)), "Fingerprint", "Failed");
                 return false;
             }
         }
@@ -754,7 +753,7 @@ fn handle_authenticate(
         CheckpointState::WaitForRfid => {
             match query_database(DATABASE_ADDR, &request) {
                 Ok(db_response) => {
-                    let scanned_worker_id = request.worker_id.map(|id| id.into());
+                    let scanned_worker_id = request.worker_id.map(|id| {id as u64});
                     let db_worker_id = db_response.worker_id;
 
                     println!(
@@ -937,7 +936,7 @@ fn send_response<T: serde::Serialize>(
 }
 
 // Writes log entry to `auth.log`
-fn log_event(worker_id: Option<u64>, checkpoint_id: Option<u64>, method: &str, status: &str) {
+fn log_event(worker_id: Option<u64>, checkpoint_id: Option<u32>, method: &str, status: &str) {
     let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
     let log_entry = format!(
         "[{}] Worker ID: {:?}, Checkpoint ID: {:?}, Method: {}, Status: {}\n",

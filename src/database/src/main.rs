@@ -231,7 +231,7 @@ async fn handle_port_server_request(
             let worker_id = latest_id as u32;
             match result {
                 Ok(id) => {
-                    return DatabaseReply::success(worker_id);
+                    return DatabaseReply::success(worker_id.into());
                 }
 
                 Err(e) => {
@@ -328,7 +328,7 @@ async fn handle_port_server_request(
  * Name: employee_exists
  * Function: Check if employee exists in the database.
  */
-fn employee_exists(conn: &Connection, id: u32) -> Result<bool> {
+fn employee_exists(conn: &Connection, id: u64) -> Result<bool> {
     let mut stmt = conn.prepare("SELECT 1 FROM employees WHERE id = ? LIMIT 1")?;
     let mut rows = stmt.query(params![id])?;
     Ok(rows.next()?.is_some())
