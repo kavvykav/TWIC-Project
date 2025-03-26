@@ -30,8 +30,8 @@ def get_fp():
         print("No Match Found")
 
 
-def enroll_fp(fp_id):
-    print(f"Enrolling fingerprint for ID {fp_id}. Place finger on sensor")
+def enroll_fp(fp_id, checkpoint_id):
+    print(f"Enrolling fingerprint for ID {fp_id} at checkpoint {checkpoint_id}. Place finger on sensor")
 
     for i in range(1, 3):
         while fpm.get_image() != adafp.OK:

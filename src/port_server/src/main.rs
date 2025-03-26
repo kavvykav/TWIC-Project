@@ -48,7 +48,7 @@ fn initialize_database() -> Result<Connection> {
         "CREATE TABLE IF NOT EXISTS employees (
             id INTEGER PRIMARY KEY,
             name TEXT NOT NULL,
-            fingerprint_ids TEXT NOT NULL,
+            fingerprint_data JSON NOT NULL,
             role_id INTEGER NOT NULL,
             allowed_locations TEXT NOT NULL,
             FOREIGN KEY (role_id) REFERENCES roles (id)
@@ -81,22 +81,71 @@ fn check_local_db(conn: &Connection, id: u32) -> Result<bool> {
  * Name: add_to_local_db
  * Function: adds a worker to the port server's database.
  */
-fn add_to_local_db(
-    conn: &Connection,
-    id: u32,
-    name: String,
-    fingerprint_ids: String,
-    role_id: i32,
-    allowed_locations: String,
-) -> Result<(), rusqlite::Error> {
-    // Insert worker data into the employees table
-    conn.execute(
-        "INSERT INTO employees (id, name, fingerprint_ids, role_id, allowed_locations) VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![id, name, fingerprint_ids, role_id, allowed_locations],
-    )?;
+ use serde_json::Value;
 
-    Ok(())
-}
+ fn add_to_local_db(
+     conn: &Connection,
+     id: u32,
+     name: String,
+     fingerprint_json: String, // ✅ Now expecting JSON
+     role_id: i32,
+     allowed_locations: String,
+ ) -> Result<(), rusqlite::Error> {
+
+    /*
+    conn.execute(
+        "INSERT INTO employees (id, name, fingerprint_data, role_id, allowed_locations) 
+         VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![id, name, fingerprint_json, role_id, allowed_locations],
+    )?;
+    */
+    
+    // Below this added this. Replaced that is directly above this
+    fn add_to_local_db(
+        conn: &Connection,
+        id: u32,
+        name: String,
+        new_fingerprint_json: Value,
+        role_id: i32,
+        allowed_locations: String,
+    ) -> Result<(), rusqlite::Error> {
+        // Retrieve existing fingerprint JSON
+        let existing_json: Option<String> = conn.query_row(
+            "SELECT fingerprint_data FROM employees WHERE id = ?1",
+            params![id],
+            |row| row.get(0),
+        ).ok();
+    
+        // Parse existing JSON or initialize new object
+        let mut fingerprint_data: Value = existing_json
+            .as_ref()
+            .and_then(|json| serde_json::from_str(json).ok())
+            .unwrap_or_else(|| json!({ "fingerprints": {} }));
+    
+        // Merge new fingerprint into existing JSON
+        if let Some(fingerprints) = fingerprint_data.get_mut("fingerprints") {
+            if let Some(map) = fingerprints.as_object_mut() {
+                for (checkpoint, fp_id) in new_fingerprint_json["fingerprints"].as_object().unwrap() {
+                    map.insert(checkpoint.clone(), fp_id.clone());
+                }
+            }
+        }
+    
+        // Store the merged fingerprint JSON back into the database
+        conn.execute(
+            "INSERT OR REPLACE INTO employees (id, name, fingerprint_data, role_id, allowed_locations) 
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![id, name, serde_json::to_string(&fingerprint_data).unwrap(), role_id, allowed_locations],  
+        )?;
+    
+        Ok(())
+    }
+
+    //^ above this added
+
+     Ok(())
+ }
+ 
 
 /*
  * Name: delete_from_local_db
@@ -314,11 +363,18 @@ fn authenticate_fingerprint(
                 }
             };
 
-            let stored_fp_id: Option<u32> = conn.query_row(
-                "SELECT fingerprint_id FROM fingerprint_ids WHERE employee_id = ?1 AND checkpoint_id = ?2",
-                params![rfid, checkpoint],
+            let stored_fingerprint_json: Option<String> = conn.query_row(
+                "SELECT fingerprint_data FROM employees WHERE id = ?1",
+                params![rfid],
                 |row| row.get(0),
             ).ok();
+            
+            let stored_fp_id = stored_fingerprint_json
+                .as_ref()
+                .and_then(|json| serde_json::from_str::<Value>(json).ok()) // Parse JSON
+                .and_then(|json| json.get("fingerprints")?.get(checkpoint.to_string())?.as_u64()) //Get checkpoint-specific fingerprint ID
+                .map(|id| id as u32);
+            
 
             if stored_fp_id.is_none() {
                 log_event(Some(*rfid), Some(*checkpoint), "Fingerprint", "Failed");
@@ -333,7 +389,7 @@ fn authenticate_fingerprint(
                 }
             }
 
-            if fingerprint == &stored_fingerprint {
+            if fingerprint.parse::<u32>().unwrap_or(0) == stored_fp_id.unwrap_or(9999) {
                 log_event(Some(*rfid), Some(*checkpoint), "Fingerprint", "Successful");
                 return true;
             } else {
@@ -377,10 +433,11 @@ fn authenticate_fingerprint(
                         conn,
                         response.worker_id.unwrap(),
                         response.worker_name.unwrap(),
-                        response.worker_fingerprint.unwrap(),
+                        response.data.unwrap(),  // Now expects fingerprint JSON
                         response.role_id.unwrap() as i32,
                         response.allowed_locations.unwrap(),
                     ) {
+                    
                         Ok(_) => {
                             log_event(Some(*rfid), Some(*checkpoint), "Fingerprint", "Successful");
                             return true;
@@ -943,7 +1000,7 @@ mod tests {
             "CREATE TABLE employees (
                 id INTEGER PRIMARY KEY,
                 name TEXT NOT NULL,
-                fingerprint_ids TEXT NOT NULL,
+                fingerprint_data JSON NOT NULL,
                 role_id INTEGER NOT NULL,
                 allowed_locations TEXT NOT NULL,
                 FOREIGN KEY (role_id) REFERENCES roles (id)
