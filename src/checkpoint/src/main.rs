@@ -2,6 +2,7 @@
     IMPORTS
 ****************/
 use common::{CheckpointReply, CheckpointRequest, CheckpointState, Submission};
+use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::env;
 use std::io::{BufRead, BufReader, Write};
@@ -67,17 +68,16 @@ fn send_and_receive(
                 return CheckpointReply::error();
             }
         };
-        
+
         // Print the JSON before sending
         println!("Sending JSON request: {}", json);
-        
+
         json.push('\0');
-        
+
         if let Err(e) = stream.write_all(json.as_bytes()) {
             eprintln!("Could not send to port server: {}", e);
             return CheckpointReply::error();
         }
-        
 
         stream.flush().unwrap();
 
@@ -121,12 +121,11 @@ fn send_and_receive(
 
     //let mut pending = pending_requests.lock().unwrap();
     let mut pending = pending_requests.try_lock(); //TRYING NOT TO DEADLOCK. MAY BE TOTALLY UNNEEDED. REPLACED BY WHATS RIGHT ABOVE THIS
-    if pending.is_none() {
+    if !pending.is_ok() {
         eprintln!("Could not acquire lock, skipping request.");
         return CheckpointReply::error();
     }
     let mut pending = pending.unwrap();
-
 
     if let Some(existing_admin) = pending.get(&request_key) {
         if *existing_admin != admin_id {
@@ -197,19 +196,17 @@ fn send_and_receive(
     }
 }
 
-
 /*
  * Name: format_fingerprint_json
  * Function: formats the json to be sent to port server
  */
- fn format_fingerprint_json(employee_id: u32, checkpoint_id: u32, fingerprint_id: u32) -> Value {
+fn format_fingerprint_json(checkpoint_id: u32, fingerprint_id: u32) -> Value {
     json!({
         "fingerprints": {
             checkpoint_id.to_string(): fingerprint_id
         }
     })
 }
-
 
 /*
  * Name: main
@@ -341,9 +338,7 @@ fn main() {
                                 } => {
                                     let role_id = role_id.parse::<u32>().unwrap_or(0);
 
-
                                     let fingerprint_json = format_fingerprint_json(
-                                        enroll_reply_1.worker_id.unwrap(),
                                         checkpoint_id,
                                         biometric.parse::<u32>().unwrap_or(0), // Convert biometric to fingerprint ID (Does this work ok?)
                                     );
