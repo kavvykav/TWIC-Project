@@ -164,7 +164,7 @@ async fn handle_port_server_request(
                 Ok((location, allowed_roles)) => {
                     // Worker details
                     let worker_data: Result<(String, String, String, u32), _> = conn.query_row(
-                "SELECT employees.fingerprint_hash, employees.allowed_locations, employees.name, roles.id \
+                "SELECT employees.fingerprint_ids, employees.allowed_locations, employees.name, roles.id \
                  FROM employees \
                  JOIN roles ON employees.role_id = roles.id \
                  WHERE employees.id = ?1",
@@ -215,7 +215,7 @@ async fn handle_port_server_request(
             }
 
             let result = conn.execute(
-                "INSERT INTO employees (name, fingerprint_hash, role_id, allowed_locations) VALUES (?1, ?2, ?3, ?4)",
+                "INSERT INTO employees (name, fingerprint_ids, role_id, allowed_locations) VALUES (?1, ?2, ?3, ?4)",
                 params![req.worker_name, req.worker_fingerprint, req.role_id, req.location],
             );
             // fetch id
