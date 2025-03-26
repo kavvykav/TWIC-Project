@@ -2,6 +2,7 @@
     IMPORTS
 ****************/
 use common::{CheckpointReply, CheckpointRequest, CheckpointState, Submission};
+use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::env;
 use std::io::{BufRead, BufReader, Write};
@@ -120,7 +121,7 @@ fn send_and_receive(
 
     //let mut pending = pending_requests.lock().unwrap();
     let mut pending = pending_requests.try_lock(); //TRYING NOT TO DEADLOCK. MAY BE TOTALLY UNNEEDED. REPLACED BY WHATS RIGHT ABOVE THIS
-    if pending.is_none() {
+    if !pending.is_ok() {
         eprintln!("Could not acquire lock, skipping request.");
         return CheckpointReply::error();
     }
@@ -199,7 +200,7 @@ fn send_and_receive(
  * Name: format_fingerprint_json
  * Function: formats the json to be sent to port server
  */
-fn format_fingerprint_json(employee_id: u32, checkpoint_id: u32, fingerprint_id: u32) -> Value {
+fn format_fingerprint_json(checkpoint_id: u32, fingerprint_id: u32) -> Value {
     json!({
         "fingerprints": {
             checkpoint_id.to_string(): fingerprint_id
@@ -338,7 +339,6 @@ fn main() {
                                     let role_id = role_id.parse::<u32>().unwrap_or(0);
 
                                     let fingerprint_json = format_fingerprint_json(
-                                        enroll_reply_1.worker_id.unwrap(),
                                         checkpoint_id,
                                         biometric.parse::<u32>().unwrap_or(0), // Convert biometric to fingerprint ID (Does this work ok?)
                                     );
@@ -601,6 +601,11 @@ fn main() {
                                 continue;
                             }
                         };
+                        let fingerprint_auth_request = CheckpointRequest::fingerprint_auth_req(
+                            checkpoint_id,
+                            worker_id,
+                            worker_fingerprint,
+                        );
                         let fingerprint_auth_reply: CheckpointReply = send_and_receive(
                             &mut stream,
                             &fingerprint_auth_request,
