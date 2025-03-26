@@ -11,3 +11,5 @@ serde = { version = "1.0.217", features = ["derive"] }
 common = { path = "../common" }
 rusqlite = "0.32.1"
 chrono = "0.4.39"
+hex = "0.4.3"
+lazy_static = "1.4"
