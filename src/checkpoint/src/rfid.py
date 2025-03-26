@@ -25,10 +25,8 @@ def read_rfid():
         id, data = r.read()
         extr_data = int(data.strip())
         print(extr_data)
-        return extr_data
     except Exception as e:
         print(f"Error: {e}")
-        return None
     finally:
         gpio.cleanup()
 
@@ -36,23 +34,22 @@ def get_token_id():
     r = SimpleMFRC522()
     try:
         id, data = r.read()
-        extr_id = int(id.strip())
-        print(extr_id)
-        return extr_id
+        print(id)
     except Exception as e:
         print(f"Error: {e}")
-        return None
     finally:
         gpio.cleanup()
 
 
 if __name__ == "__main__":
 
-    if len(sys.argv) != 1:
+    if len(sys.argv) < 2:
         print("Please enter 1 2 or 3 as a cmdline arg")
-    elif sys.argv[1] == 1:
+    elif int(sys.argv[1]) == 1:
         write_rfid()
-    elif sys.argv[1] == 2:
+    elif int(sys.argv[1]) == 2:
         read_rfid()
-    elif sys.argv[1] == 3:
+    elif int(sys.argv[1]) == 3:
         get_token_id()
+    else:
+        print("Unknown argument")
