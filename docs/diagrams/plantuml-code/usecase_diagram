@@ -1,0 +1,26 @@
+@startuml
+package "Administration Interface" as AdminUI {
+    usecase "Enroll" as e
+    usecase "Update" as u
+    usecase  "Delete" as d
+}
+skinparam actorStyle awesome
+:Employee: --> (Use)
+"Admin1" as Admin1
+"Admin2" as Admin2
+"Authenticate" as (Use)
+"Access granted" as (ag)
+"Access denied" as (ad)
+"Close Administration UI" as (closeui)
+(Use) --> (ag) : Employee passes
+(Use) --> (AdminUI) : Administrators pass
+Admin1 --> (Use)
+Admin2 --> (Use)
+(AdminUI) --> e : enroll an employee
+(AdminUI) --> u : update an employee
+(AdminUI) --> d : delete an employee
+(Use) --> (ad) : Authentication failed
+e --> (closeui)
+u --> (closeui)
+d --> (closeui)
+@enduml

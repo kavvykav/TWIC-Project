@@ -4,7 +4,8 @@
 use chrono::Local;
 use common::{
     CheckpointReply, CheckpointState, Client, DatabaseReply, DatabaseRequest, Role, DATABASE_ADDR,
-    SERVER_ADDR,
+    SERVER_ADDR,Parameters, keygen_string, 
+    encrypt_string, decrypt_string, encrypt_aes, decrypt_aes, generate_iv, generate_key
 };
 use ctrlc;
 use rusqlite::{params, Connection, Result};
@@ -18,8 +19,31 @@ use std::{
     thread,
     time::Duration,
 };
+use lazy_static::lazy_static;
 
 const LOG_FILE: &str = "auth.log";
+
+
+/*
+* Name: Lazy Static 
+* Function: For generating and storing a server keypair, also provides static reference for AES key and IV
+*/
+lazy_static! {
+    // PS_KEYPAIR will hold the port server's persistent key pair.
+    // keygen_string returns a HashMap with keys "public" and "secret".
+    static ref PS_KEYPAIR: Mutex<HashMap<String, String>> = Mutex::new({
+        let params = Parameters::default();
+        let keypair = keygen_string(&params, None);
+        println!("Port Server Public Key: {}", keypair.get("public").unwrap()); // For debugging
+        keypair
+    });
+
+}
+lazy_static! {
+    static ref SYMMETRIC_KEY: Mutex<Option<String>> = Mutex::new(None);
+    static ref SYMMETRIC_IV: Mutex<Option<String>> = Mutex::new(None);
+}
+
 
 /**
  * Name: initialize_database
@@ -267,6 +291,9 @@ fn authenticate_rfid(
             authorized_roles: None,
             worker_name: None,
             role_id: None,
+            encrypted_aes_key: None,
+            encrypted_iv: None,
+            public_key: None,
         };
 
         match query_database(DATABASE_ADDR, &request) {
@@ -407,6 +434,9 @@ fn authenticate_fingerprint(
             authorized_roles: None,
             worker_name: None,
             role_id: None,
+            encrypted_aes_key: None,
+            encrypted_iv: None,
+            public_key: None,
         };
 
         match query_database(DATABASE_ADDR, &request) {
@@ -482,11 +512,25 @@ fn query_database(database_addr: &str, request: &DatabaseRequest) -> Result<Data
     let request_json = serde_json::to_string(request)
         .map_err(|e| format!("Failed to serialize request: {}", e))?;
 
+    let aes_key_opt = SYMMETRIC_KEY.lock().unwrap().clone();
+    let aes_iv_opt = SYMMETRIC_IV.lock().unwrap().clone();
+
+    let encrypted_request = if aes_key_opt.is_some() && aes_iv_opt.is_some() && request.command != "KEY_EXCHANGE" {
+        let aes_key = hex::decode(aes_key_opt.unwrap()).expect("Invalid AES Key");
+        let aes_iv = hex::decode(aes_iv_opt.unwrap()).expect("Invalid IV");
+
+        println!("Encrypting request before sending to database...");
+        encrypt_aes(&request_json, &aes_key, &aes_iv)
+    } else {
+        println!("WARNING: Sending unencrypted request ({})", request.command);
+        request_json.as_bytes().to_vec()
+    };
+
     let mut stream = TcpStream::connect(database_addr)
         .map_err(|e| format!("Failed to connect to database: {}", e))?;
 
     stream
-        .write_all(format!("{}", request_json).as_bytes())
+        .write_all(&encrypted_request)
         .map_err(|e| format!("Failed to send request to database: {}", e))?;
 
     let mut reader = BufReader::new(&mut stream);
@@ -504,8 +548,95 @@ fn query_database(database_addr: &str, request: &DatabaseRequest) -> Result<Data
         .shutdown(std::net::Shutdown::Both)
         .map_err(|e| format!("Failed to close connection with the database: {}", e))?;
 
-    Ok(response)
+    Ok(response)   
 }
+
+
+
+/*
+ * Name: key_exchange
+ * Function: Begins the key exchange process with database, sends over key and iv values
+ */
+fn key_exchange() -> bool {
+    let ps_keypair = PS_KEYPAIR.lock().unwrap();
+    let my_public_key = ps_keypair.get("public").expect("Public key not found").clone();
+    println!("{}", my_public_key);
+    drop(ps_keypair); // Release the lock early.
+
+    // Build the key exchange request.
+    // Notice that we leave encrypted_aes_key and encrypted_iv as None—this tells the database
+    // that this is an initiation request.
+    let request = DatabaseRequest {
+        command: "KEY_EXCHANGE".to_string(),
+        checkpoint_id: None,
+        worker_id: None,
+        worker_name: None,
+        worker_fingerprint: None,
+        location: None,
+        authorized_roles: None,
+        role_id: None,
+        encrypted_aes_key: None,
+        encrypted_iv: None,
+        public_key: Some(my_public_key),
+    };
+    
+
+    // Send the request to the database.
+    match query_database(DATABASE_ADDR, &request) {
+    Ok(reply) => {
+            if reply.status == "success" {
+                if let (Some(encrypted_aes_key), Some(encrypted_iv)) =
+                    (reply.encrypted_aes_key, reply.encrypted_iv)
+                {
+                    // Retrieve our private key.
+                    let ps_keypair = PS_KEYPAIR.lock().unwrap();
+                    let my_private_key = ps_keypair.get("secret").expect("Private key not found");
+                    let rlwe_params = Parameters::default();
+
+                    // Decrypt the received AES key and IV.
+                    let decrypted_aes_key =
+                        decrypt_string(my_private_key, &encrypted_aes_key, &rlwe_params);
+                    let decrypted_iv =
+                        decrypt_string(my_private_key, &encrypted_iv, &rlwe_params);
+                    
+                    println!("Decrypted AES Key: {:?}", decrypted_aes_key);
+                    println!("Decrypted IV: {:?}", decrypted_iv);
+
+                    // Store the symmetric key and IV in our global variables.
+                    // Here we encode the raw bytes as hex strings for easier handling.
+                    SYMMETRIC_KEY
+                        .lock()
+                        .unwrap()
+                        .replace(hex::encode(&decrypted_aes_key));
+                    SYMMETRIC_IV
+                        .lock()
+                        .unwrap()
+                        .replace(hex::encode(&decrypted_iv));
+
+                    // Now both the port server and database share the same symmetric key/IV.
+                    return true;
+                } else {
+                    eprintln!("Key exchange reply is missing encrypted keys.");
+                    return false;
+                }
+            } else {
+                eprintln!("Key exchange failed: status not 'success'.");
+                return false;
+            }
+        }
+        Err(e) => {
+            eprintln!("Error during key exchange: {:?}", e);
+            return false;
+        }
+    }
+
+    println!("Sent encrypted AES key and IV to the database server.");
+    return true
+}
+
+
+
+
 
 /*
  * Name: handle_client
@@ -606,6 +737,17 @@ fn parse_command_from_request(
         "DELETE" => {
             let conn = conn.lock().unwrap(); // Lock the Mutex to get &Connection
             handle_database_request(&conn, request, stream)
+        }
+        "KEY_EXCHANGE" => {
+            // Call your local key_exchange() function
+        let success = key_exchange();
+            // Now reply to the client
+        let reply = if success {
+            DatabaseReply::success()
+        } else {
+            DatabaseReply::error()
+        };
+        send_response(&reply, stream)
         }
         _ => Err("Unknown command".into()),
     }
