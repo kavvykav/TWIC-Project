@@ -7,7 +7,6 @@ use common::{
     SERVER_ADDR,Parameters, keygen_string, 
     encrypt_string, decrypt_string, encrypt_aes, decrypt_aes, generate_iv, generate_key
 };
-use ctrlc;
 use rusqlite::{params, Connection, Result};
 use std::fs::OpenOptions;
 use std::{
@@ -20,6 +19,7 @@ use std::{
     time::Duration,
 };
 use lazy_static::lazy_static;
+use serde_json::{json, Value};
 
 const LOG_FILE: &str = "auth.log";
 
@@ -105,7 +105,6 @@ fn check_local_db(conn: &Connection, id: u32) -> Result<bool> {
  * Name: add_to_local_db
  * Function: adds a worker to the port server's database.
  */
- use serde_json::Value;
 
  fn add_to_local_db(
      conn: &Connection,
@@ -463,7 +462,7 @@ fn authenticate_fingerprint(
                         conn,
                         response.worker_id.unwrap(),
                         response.worker_name.unwrap(),
-                        response.data.unwrap(),  // Now expects fingerprint JSON
+                        response.worker_fingerprint.unwrap(),  // Now expects fingerprint JSON
                         response.role_id.unwrap() as i32,
                         response.allowed_locations.unwrap(),
                     ) {
@@ -743,7 +742,7 @@ fn parse_command_from_request(
         let success = key_exchange();
             // Now reply to the client
         let reply = if success {
-            DatabaseReply::success()
+            DatabaseReply::success(0)
         } else {
             DatabaseReply::error()
         };
