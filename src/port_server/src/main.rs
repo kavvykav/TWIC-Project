@@ -20,9 +20,9 @@ use std::{
 };
 use lazy_static::lazy_static;
 use serde_json::{json, Value};
+use base64::{engine::general_purpose, Engine as _};
 
 const LOG_FILE: &str = "auth.log";
-
 
 /*
 * Name: Lazy Static 
@@ -37,13 +37,11 @@ lazy_static! {
         println!("Port Server Public Key: {}", keypair.get("public").unwrap()); // For debugging
         keypair
     });
-
 }
 lazy_static! {
     static ref SYMMETRIC_KEY: Mutex<Option<String>> = Mutex::new(None);
     static ref SYMMETRIC_IV: Mutex<Option<String>> = Mutex::new(None);
 }
-
 
 /**
  * Name: initialize_database
@@ -105,26 +103,15 @@ fn check_local_db(conn: &Connection, id: u64) -> Result<bool> {
  * Name: add_to_local_db
  * Function: adds a worker to the port server's database.
  */
-
- fn add_to_local_db(
-     conn: &Connection,
-     id: u64,
-     name: String,
-     fingerprint_json: String, // ✅ Now expecting JSON
-     role_id: i32,
-     allowed_locations: String,
- ) -> Result<(), rusqlite::Error> {
-
-    /*
-    conn.execute(
-        "INSERT INTO employees (id, name, fingerprint_data, role_id, allowed_locations) 
-         VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![id, name, fingerprint_json, role_id, allowed_locations],
-    )?;
-    */
-    
-    // Below this added this. Replaced that is directly above this
-    fn add_to_local_db(
+fn add_to_local_db(
+    conn: &Connection,
+    id: u64,
+    name: String,
+    fingerprint_json: String,
+    role_id: i32,
+    allowed_locations: String,
+) -> Result<(), rusqlite::Error> {
+    fn add_to_local_db_inner(
         conn: &Connection,
         id: u64,
         name: String,
@@ -132,20 +119,17 @@ fn check_local_db(conn: &Connection, id: u64) -> Result<bool> {
         role_id: i32,
         allowed_locations: String,
     ) -> Result<(), rusqlite::Error> {
-        // Retrieve existing fingerprint JSON
         let existing_json: Option<String> = conn.query_row(
             "SELECT fingerprint_data FROM employees WHERE id = ?1",
             params![id],
             |row| row.get(0),
         ).ok();
-    
-        // Parse existing JSON or initialize new object
+
         let mut fingerprint_data: Value = existing_json
             .as_ref()
             .and_then(|json| serde_json::from_str(json).ok())
             .unwrap_or_else(|| json!({ "fingerprints": {} }));
-    
-        // Merge new fingerprint into existing JSON
+
         if let Some(fingerprints) = fingerprint_data.get_mut("fingerprints") {
             if let Some(map) = fingerprints.as_object_mut() {
                 for (checkpoint, fp_id) in new_fingerprint_json["fingerprints"].as_object().unwrap() {
@@ -153,29 +137,27 @@ fn check_local_db(conn: &Connection, id: u64) -> Result<bool> {
                 }
             }
         }
-    
-        // Store the merged fingerprint JSON back into the database
+
         conn.execute(
             "INSERT OR REPLACE INTO employees (id, name, fingerprint_data, role_id, allowed_locations) 
              VALUES (?1, ?2, ?3, ?4, ?5)",
             params![id, name, serde_json::to_string(&fingerprint_data).unwrap(), role_id, allowed_locations],  
         )?;
-    
+
         Ok(())
     }
 
-    //^ above this added
-
-     Ok(())
- }
- 
+    let fingerprint_value: Value = serde_json::from_str(&fingerprint_json)
+        .map_err(|e| rusqlite::Error::InvalidQuery)?;
+    
+    add_to_local_db_inner(conn, id, name, fingerprint_value, role_id, allowed_locations)
+}
 
 /*
  * Name: delete_from_local_db
  * Function: deletes a worker from the port server's database.
  */
 fn delete_from_local_db(conn: &Connection, id: u64) -> Result<(), rusqlite::Error> {
-    // Delete from employees table
     conn.execute("DELETE FROM employees WHERE id = ?1", params![id])?;
     Ok(())
 }
@@ -224,7 +206,8 @@ fn authenticate_rfid(
     checkpoint_id: &Option<u32>,
 ) -> bool {
     if let (Some(rfid), Some(checkpoint)) = (rfid_tag, checkpoint_id) {
-        if check_local_db(conn, *rfid).unwrap_or(false) {
+        let rfid_64 = u64::from(*rfid);
+        if check_local_db(conn, rfid_64).unwrap_or(false) {
             println!("Found worker in local database");
             let mut stmt = match conn.prepare(
                 "SELECT roles.name
@@ -234,15 +217,15 @@ fn authenticate_rfid(
             ) {
                 Ok(stmt) => stmt,
                 Err(_) => {
-                    log_event(*rfid_tag, *checkpoint_id, "RFID", "Failed");
+                    log_event(rfid_tag.map(|id| id.into()), checkpoint_id.map(|id| id.into()), "RFID", "Failed");
                     return false;
                 }
             };
 
-            let role_name: String = match stmt.query_row([rfid], |row| row.get(0)) {
+            let role_name: String = match stmt.query_row([rfid_64], |row| row.get(0)) {
                 Ok(role) => role,
                 Err(_) => {
-                    log_event(*rfid_tag, *checkpoint_id, "RFID", "Failed");
+                    log_event(rfid_tag.map(|id| id.into()), checkpoint_id.map(|id| id.into()), "RFID", "Failed");
                     return false;
                 }
             };
@@ -254,7 +237,7 @@ fn authenticate_rfid(
             ) {
                 Ok(stmt) => stmt,
                 Err(_) => {
-                    log_event(*rfid_tag, *checkpoint_id, "RFID", "Failed");
+                    log_event(rfid_tag.map(|id| id.into()), checkpoint_id.map(|id| id.into()), "RFID", "Failed");
                     return false;
                 }
             };
@@ -262,7 +245,7 @@ fn authenticate_rfid(
             let allowed_roles: String = match stmt.query_row([checkpoint], |row| row.get(0)) {
                 Ok(roles) => roles,
                 Err(_) => {
-                    log_event(*rfid_tag, *checkpoint_id, "RFID", "Failed");
+                    log_event(rfid_tag.map(|id| id.into()), checkpoint_id.map(|id| id.into()), "RFID", "Failed");
                     return false;
                 }
             };
@@ -273,18 +256,18 @@ fn authenticate_rfid(
                 .collect();
 
             if !allowed_roles_vec.contains(&role_name) {
-                log_event(*rfid_tag, *checkpoint_id, "RFID", "Failed");
+                log_event(rfid_tag.map(|id| id.into()), checkpoint_id.map(|id| id.into()), "RFID", "Failed");
                 return false;
             } else {
-                log_event(*rfid_tag, *checkpoint_id, "RFID", "Successful");
+                log_event(rfid_tag.map(|id| id.into()), checkpoint_id.map(|id| id.into()), "RFID", "Successful");
                 return true;
             }
         }
 
         let request = DatabaseRequest {
             command: "AUTHENTICATE".to_string(),
-            checkpoint_id: Some(checkpoint.clone()),
-            worker_id: Some(rfid.clone()),
+            checkpoint_id: Some(*checkpoint),
+            worker_id: Some(*rfid),
             rfid_data: None,
             worker_fingerprint: None,
             location: None,
@@ -306,7 +289,7 @@ fn authenticate_rfid(
                 println!("Response status: {}", response.status);
 
                 if response.status == "error".to_string() {
-                    log_event(Some(*rfid), Some(*checkpoint), "RFID", "Failed");
+                    log_event(Some(u64::from(*rfid)), Some(u64::from(*checkpoint)), "RFID", "Failed");
                     return false;
                 }
 
@@ -330,8 +313,7 @@ fn authenticate_rfid(
                     .map(|loc| loc.trim().to_string())
                     .collect();
 
-                let auth_successful = Some(rfid) == response.worker_id.as_ref()
-                    && authorized_roles.contains(&role_str)
+                   let auth_successful = Some(u64::from(*rfid)) == response.worker_id.map(|id| u64::from(id)) && authorized_roles.contains(&role_str)
                     && allowed_locations_vec.contains(&response.location.clone().unwrap());
 
                 println!("ID from DB: {}", response.worker_id.unwrap());
@@ -344,21 +326,21 @@ fn authenticate_rfid(
                 );
 
                 if auth_successful {
-                    log_event(Some(*rfid), Some(*checkpoint), "RFID", "Successful");
+                    log_event(Some(u64::from(*rfid)), Some(u64::from(*checkpoint)), "RFID", "Successful");
                 } else {
-                    log_event(Some(*rfid), Some(*checkpoint), "RFID", "Failed");
+                    log_event(Some(u64::from(*rfid)), Some(u64::from(*checkpoint)), "RFID", "Failed");
                 }
 
                 return auth_successful;
             }
             Err(e) => {
                 eprintln!("Error querying database for RFID: {:?}", e);
-                log_event(*rfid_tag, *checkpoint_id, "RFID", "Failed");
+                log_event(rfid_tag.map(|id| id.into()), checkpoint_id.map(|id| id.into()), "RFID", "Failed");
                 return false;
             }
         }
     } else {
-        log_event(*rfid_tag, *checkpoint_id, "RFID", "Failed");
+        log_event(rfid_tag.map(|id| id.into()), checkpoint_id.map(|id| id.into()), "RFID", "Failed");
         return false;
     }
 }
@@ -376,60 +358,46 @@ fn authenticate_fingerprint(
     if let (Some(rfid), Some(fingerprint), Some(checkpoint)) =
         (rfid_tag, fingerprint_ids, checkpoint_id)
     {
-        if check_local_db(conn, *rfid).unwrap_or(false) {
-            // Get stored fingerprint hash from local database
-            let mut stmt = match conn.prepare(
-                "SELECT fingerprint_ids
-                 FROM employees
-                 WHERE employees.id = ?",
-            ) {
-                Ok(stmt) => stmt,
-                Err(_) => {
-                    log_event(Some(*rfid), Some(*checkpoint), "Fingerprint", "Failed");
-                    return false;
-                }
-            };
-
+        let rfid_64 = u64::from(*rfid);
+        if check_local_db(conn, rfid_64).unwrap() {
             let stored_fingerprint_json: Option<String> = conn.query_row(
                 "SELECT fingerprint_data FROM employees WHERE id = ?1",
-                params![rfid],
+                params![rfid_64],
                 |row| row.get(0),
             ).ok();
             
             let stored_fp_id = stored_fingerprint_json
                 .as_ref()
-                .and_then(|json| serde_json::from_str::<Value>(json).ok()) // Parse JSON
-                .and_then(|json| json.get("fingerprints")?.get(checkpoint.to_string())?.as_u64()) //Get checkpoint-specific fingerprint ID
+                .and_then(|json| serde_json::from_str::<Value>(json).ok())
+                .and_then(|json| json.get("fingerprints")?.get(checkpoint.to_string())?.as_u64())
                 .map(|id| id as u32);
             
-
             if stored_fp_id.is_none() {
-                log_event(Some(*rfid), Some(*checkpoint), "Fingerprint", "Failed");
+                log_event(Some(u64::from(*rfid)), Some(u64::from(*checkpoint)), "Fingerprint", "Failed");
                 return false;
             }
 
-            // If found a valid ID, check if it matches the scanned one
             if let Some(valid_fp_id) = stored_fp_id {
                 if valid_fp_id == fingerprint.parse().unwrap_or(0) {
-                    log_event(Some(*rfid), Some(*checkpoint), "Fingerprint", "Successful");
+                    log_event(Some(u64::from(*rfid)), Some(u64::from(*checkpoint)), "Fingerprint", "Successful");
                     return true;
                 }
             }
 
             if fingerprint.parse::<u32>().unwrap_or(0) == stored_fp_id.unwrap_or(9999) {
-                log_event(Some(*rfid), Some(*checkpoint), "Fingerprint", "Successful");
+                log_event(Some(u64::from(*rfid)), Some(u64::from(*checkpoint)), "Fingerprint", "Successful");
                 return true;
             } else {
-                log_event(Some(*rfid), Some(*checkpoint), "Fingerprint", "Failed");
+                log_event(Some(u64::from(*rfid)), Some(u64::from(*checkpoint)), "Fingerprint", "Failed");
                 return false;
             }
         }
 
         let request = DatabaseRequest {
             command: "AUTHENTICATE".to_string(),
-            checkpoint_id: Some(checkpoint.clone()),
+            checkpoint_id: Some(*checkpoint),
             worker_id: None,
-            rfid_data: Some(rfid.clone()),
+            rfid_data: Some(*rfid),
             worker_fingerprint: Some(fingerprint.clone()),
             location: None,
             authorized_roles: None,
@@ -452,25 +420,24 @@ fn authenticate_fingerprint(
                 );
 
                 if response.status != "success".to_string() {
-                    log_event(Some(*rfid), Some(*checkpoint), "Fingerprint", "Failed");
+                    log_event(Some(u64::from(*rfid)), Some(u64::from(*checkpoint)), "Fingerprint", "Failed");
                     return false;
                 }
 
-                let auth = Some(rfid) == response.worker_id.as_ref()
+                let auth = Some(u64::from(*rfid)) == response.worker_id.map(|id| u64::from(id))
                     && Some(fingerprint) == response.worker_fingerprint.as_ref();
 
                 if auth {
                     match add_to_local_db(
                         conn,
-                        response.worker_id.unwrap(),
+                        response.worker_id.unwrap().into(),
                         response.worker_name.unwrap(),
-                        response.worker_fingerprint.unwrap(),  // Now expects fingerprint JSON
+                        response.worker_fingerprint.unwrap(),
                         response.role_id.unwrap() as i32,
                         response.allowed_locations.unwrap(),
                     ) {
-                    
                         Ok(_) => {
-                            log_event(Some(*rfid), Some(*checkpoint), "Fingerprint", "Successful");
+                            log_event(Some(u64::from(*rfid)), Some(u64::from(*checkpoint)), "Fingerprint", "Successful");
                             return true;
                         }
                         Err(e) => {
@@ -478,23 +445,23 @@ fn authenticate_fingerprint(
                                 "An error occurred with adding the user to the database : {}",
                                 e
                             );
-                            log_event(Some(*rfid), Some(*checkpoint), "Fingerprint", "Failed");
+                            log_event(Some(u64::from(*rfid)), Some(u64::from(*checkpoint)), "Fingerprint", "Failed");
                             return true;
                         }
                     }
                 } else {
-                    log_event(Some(*rfid), Some(*checkpoint), "Fingerprint", "Failed");
+                    log_event(Some(u64::from(*rfid)), Some(u64::from(*checkpoint)), "Fingerprint", "Failed");
                     return false;
                 }
             }
             Err(e) => {
                 eprintln!("Error querying database for fingerprint hash: {}", e);
-                log_event(Some(*rfid), Some(*checkpoint), "Fingerprint", "Failed");
+                log_event(Some(u64::from(*rfid)), Some(u64::from(*checkpoint)), "Fingerprint", "Failed");
                 return false;
             }
         }
     } else {
-        log_event(*rfid_tag, *checkpoint_id, "Fingerprint", "Failed");
+        log_event(rfid_tag.map(|id| id.into()), checkpoint_id.map(|id| id.into()), "Fingerprint", "Failed");
         return false;
     }
 }
@@ -552,8 +519,6 @@ fn query_database(database_addr: &str, request: &DatabaseRequest) -> Result<Data
     Ok(response)   
 }
 
-
-
 /*
  * Name: key_exchange
  * Function: Begins the key exchange process with database, sends over key and iv values
@@ -564,9 +529,6 @@ fn key_exchange() -> bool {
     println!("{}", my_public_key);
     drop(ps_keypair); // Release the lock early.
 
-    // Build the key exchange request.
-    // Notice that we leave encrypted_aes_key and encrypted_iv as None—this tells the database
-    // that this is an initiation request.
     let request = DatabaseRequest {
         command: "KEY_EXCHANGE".to_string(),
         checkpoint_id: None,
@@ -582,20 +544,16 @@ fn key_exchange() -> bool {
         public_key: Some(my_public_key),
     };
     
-
-    // Send the request to the database.
     match query_database(DATABASE_ADDR, &request) {
-    Ok(reply) => {
+        Ok(reply) => {
             if reply.status == "success" {
                 if let (Some(encrypted_aes_key), Some(encrypted_iv)) =
                     (reply.encrypted_aes_key, reply.encrypted_iv)
                 {
-                    // Retrieve our private key.
                     let ps_keypair = PS_KEYPAIR.lock().unwrap();
                     let my_private_key = ps_keypair.get("secret").expect("Private key not found");
                     let rlwe_params = Parameters::default();
 
-                    // Decrypt the received AES key and IV.
                     let decrypted_aes_key =
                         decrypt_string(my_private_key, &encrypted_aes_key, &rlwe_params);
                     let decrypted_iv =
@@ -604,18 +562,15 @@ fn key_exchange() -> bool {
                     println!("Decrypted AES Key: {:?}", decrypted_aes_key);
                     println!("Decrypted IV: {:?}", decrypted_iv);
 
-                    // Store the symmetric key and IV in our global variables.
-                    // Here we encode the raw bytes as hex strings for easier handling.
                     SYMMETRIC_KEY
                         .lock()
                         .unwrap()
-                        .replace(hex::encode(&decrypted_aes_key));
+                        .replace(general_purpose::STANDARD.encode(&decrypted_aes_key));
                     SYMMETRIC_IV
                         .lock()
                         .unwrap()
-                        .replace(hex::encode(&decrypted_iv));
+                        .replace(general_purpose::STANDARD.encode(&decrypted_iv));
 
-                    // Now both the port server and database share the same symmetric key/IV.
                     return true;
                 } else {
                     eprintln!("Key exchange reply is missing encrypted keys.");
@@ -631,14 +586,7 @@ fn key_exchange() -> bool {
             return false;
         }
     }
-
-    println!("Sent encrypted AES key and IV to the database server.");
-    return true
 }
-
-
-
-
 
 /*
  * Name: handle_client
@@ -667,7 +615,7 @@ fn handle_client(
         ) {
             Ok(_) => continue,
             Err(e) if e.contains("WouldBlock") => {
-                thread::sleep(Duration::from_millis(50)); // Small sleep before retrying
+                thread::sleep(Duration::from_millis(50));
                 continue;
             }
             Err(e) => {
@@ -729,27 +677,25 @@ fn parse_command_from_request(
         "INIT_REQUEST" => handle_init_request(conn, request, stream),
         "AUTHENTICATE" => handle_authenticate(conn, request, stream, client_id, clients),
         "ENROLL" => {
-            let conn = conn.lock().unwrap(); // Lock the Mutex to get &Connection
+            let conn = conn.lock().unwrap();
             handle_database_request(&conn, request, stream)
         }
         "UPDATE" => {
-            let conn = conn.lock().unwrap(); // Lock the Mutex to get &Connection
+            let conn = conn.lock().unwrap();
             handle_database_request(&conn, request, stream)
         }
         "DELETE" => {
-            let conn = conn.lock().unwrap(); // Lock the Mutex to get &Connection
+            let conn = conn.lock().unwrap();
             handle_database_request(&conn, request, stream)
         }
         "KEY_EXCHANGE" => {
-            // Call your local key_exchange() function
-        let success = key_exchange();
-            // Now reply to the client
-        let reply = if success {
-            DatabaseReply::success(0)
-        } else {
-            DatabaseReply::error()
-        };
-        send_response(&reply, stream)
+            let success = key_exchange();
+            let reply = if success {
+                DatabaseReply::success(0)
+            } else {
+                DatabaseReply::error()
+            };
+            send_response(&reply, stream)
         }
         _ => Err("Unknown command".into()),
     }
@@ -760,7 +706,6 @@ fn parse_command_from_request(
  * Function: Handler for a checkpoint init_request.
  */
 fn handle_init_request(
-    // TODO: add a column to fingerprint_ids table when a checkpoint initializes
     conn: &Arc<Mutex<Connection>>,
     request: DatabaseRequest,
     stream: &Arc<Mutex<TcpStream>>,
@@ -809,8 +754,8 @@ fn handle_authenticate(
         CheckpointState::WaitForRfid => {
             match query_database(DATABASE_ADDR, &request) {
                 Ok(db_response) => {
-                    let scanned_worker_id = request.worker_id; // ID from Checkpoint
-                    let db_worker_id = db_response.worker_id; // ID from Database
+                    let scanned_worker_id = request.worker_id.map(|id| id.into());
+                    let db_worker_id = db_response.worker_id;
 
                     println!(
                         "Checkpoint Scanned Worker ID: {:?}, Database Worker ID: {:?}",
@@ -829,7 +774,7 @@ fn handle_authenticate(
                         next_state = CheckpointState::WaitForFingerprint;
                         CheckpointReply {
                             status: "success".to_string(),
-                            checkpoint_id: request.checkpoint_id,
+                            checkpoint_id: request.checkpoint_id.map(|id| id.into()),
                             worker_id: scanned_worker_id,
                             fingerprint: None,
                             data: None,
@@ -844,7 +789,7 @@ fn handle_authenticate(
                         next_state = CheckpointState::AuthFailed;
                         CheckpointReply {
                             status: "failed".to_string(),
-                            checkpoint_id: request.checkpoint_id,
+                            checkpoint_id: request.checkpoint_id.map(|id| id.into()),
                             worker_id: None,
                             fingerprint: None,
                             data: None,
@@ -858,7 +803,7 @@ fn handle_authenticate(
                     next_state = CheckpointState::AuthFailed;
                     CheckpointReply {
                         status: "error".to_string(),
-                        checkpoint_id: request.checkpoint_id,
+                        checkpoint_id: request.checkpoint_id.map(|id| id.into()),
                         worker_id: None,
                         fingerprint: None,
                         data: None,
@@ -901,26 +846,22 @@ fn handle_database_request(
     request: DatabaseRequest,
     stream: &Arc<Mutex<TcpStream>>,
 ) -> Result<(), String> {
-    // Query the central database
     let db_reply = query_database(DATABASE_ADDR, &request)
         .map_err(|e| format!("Database query failed: {}", e))?;
 
-    // Process the reply based on the command
     let reply = if db_reply.status == "success" {
         match request.command.as_str() {
             "ENROLL" => DatabaseReply::success(db_reply.worker_id.unwrap()),
             "DELETE" => {
-                // Safely unwrap worker_id or return an error
                 let worker_id = request
                     .worker_id
+                    .map(|id| id.into())
                     .ok_or("Worker ID is missing in the request")?;
 
-                // Check if the worker exists in the local database
                 if check_local_db(conn, worker_id).map_err(|e| format!("Database error: {}", e))? {
-                    // Delete the worker from the local database
                     match delete_from_local_db(conn, worker_id) {
                         Ok(_) => {
-                            DatabaseReply::init_reply(request.checkpoint_id.unwrap_or_default())
+                            DatabaseReply::init_reply(request.checkpoint_id.unwrap_or_default().into())
                         }
                         Err(e) => {
                             eprintln!("Failed to delete worker: {}", e);
@@ -928,7 +869,6 @@ fn handle_database_request(
                         }
                     }
                 } else {
-                    // Worker not found in the local database
                     eprintln!(
                         "Worker with ID {} not found in the local database",
                         worker_id
@@ -937,26 +877,24 @@ fn handle_database_request(
                 }
             }
             "UPDATE" => {
-                // Safely unwrap worker_id, role_id, and allowed_locations or return an error
                 let worker_id = request
                     .worker_id
+                    .map(|id| id.into())
                     .ok_or("Worker ID is missing in the request")?;
                 request.role_id.ok_or("Role ID is missing in the request")?;
                 request
                     .location
                     .ok_or("Allowed locations are missing in the request")?;
 
-                // Check if the worker exists in the local database
                 if check_local_db(conn, worker_id).map_err(|e| format!("Database error: {}", e))? {
-                    // Update the worker's role and allowed locations
                     match update_worker_entry(
                         conn,
-                        request.worker_id.unwrap(),
+                        worker_id,
                         db_reply.allowed_locations.unwrap(),
                         db_reply.role_id.unwrap() as i32,
                     ) {
                         Ok(_) => {
-                            DatabaseReply::init_reply(request.checkpoint_id.unwrap_or_default())
+                            DatabaseReply::init_reply(request.checkpoint_id.unwrap_or_default().into())
                         }
                         Err(e) => {
                             eprintln!("Failed to update worker entry: {}", e);
@@ -964,7 +902,6 @@ fn handle_database_request(
                         }
                     }
                 } else {
-                    // Worker not found in the local database
                     eprintln!(
                         "Worker with ID {} not found in the local database",
                         worker_id
@@ -972,16 +909,15 @@ fn handle_database_request(
                     DatabaseReply::error()
                 }
             }
-            _ => DatabaseReply::init_reply(request.checkpoint_id.unwrap_or_default()),
+            _ => DatabaseReply::init_reply(request.checkpoint_id.unwrap_or_default().into()),
         }
     } else {
-        // Central database query failed
         DatabaseReply::error()
     };
 
-    // Send the response back to the client
     send_response(&reply, stream)
 }
+
 /*
  * Name: send_response
  * Function: sends the result of the request back to the corresponding checkpoint.
@@ -1001,7 +937,7 @@ fn send_response<T: serde::Serialize>(
 }
 
 // Writes log entry to `auth.log`
-fn log_event(worker_id: Option<u64>, checkpoint_id: Option<u32>, method: &str, status: &str) {
+fn log_event(worker_id: Option<u64>, checkpoint_id: Option<u64>, method: &str, status: &str) {
     let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
     let log_entry = format!(
         "[{}] Worker ID: {:?}, Checkpoint ID: {:?}, Method: {}, Status: {}\n",
@@ -1049,6 +985,7 @@ fn log_event(worker_id: Option<u64>, checkpoint_id: Option<u32>, method: &str, s
         _ => {}
     }
 }
+
 // Main server function
 fn main() -> Result<(), rusqlite::Error> {
     let listener = TcpListener::bind(SERVER_ADDR).expect("Failed to bind address");
@@ -1061,7 +998,6 @@ fn main() -> Result<(), rusqlite::Error> {
     let running = Arc::new(AtomicBool::new(true));
     let running_clone = Arc::clone(&running);
 
-    // Database Initialization
     let database = initialize_database()?;
     let database = Arc::new(Mutex::new(database));
 
@@ -1126,11 +1062,9 @@ mod tests {
     use super::*;
     use rusqlite::params;
 
-    // Helper function to initialize the database with test data
     fn setup_test_database() -> Connection {
         let conn = Connection::open(":memory:").expect("Failed to create in-memory database");
 
-        // Create tables
         conn.execute(
             "CREATE TABLE roles (
                 id INTEGER PRIMARY KEY,
@@ -1163,23 +1097,20 @@ mod tests {
         )
         .expect("Failed to create checkpoints table");
 
-        // Insert test roles
         conn.execute(
             "INSERT INTO roles (id, name) VALUES (1, 'Admin'), (2, 'Worker')",
             [],
         )
         .expect("Failed to insert roles");
 
-        // Insert test employees
         conn.execute(
-            "INSERT INTO employees (id, name, fingerprint_ids, role_id, allowed_locations) VALUES 
-            (1, 'John Doe', 'hash1', 1, 'Location1,Location2'),
-            (2, 'Jane Doe', 'hash2', 2, 'Location2')",
+            "INSERT INTO employees (id, name, fingerprint_data, role_id, allowed_locations) VALUES 
+            (1, 'John Doe', '{\"fingerprints\":{\"1\":123}}', 1, 'Location1,Location2'),
+            (2, 'Jane Doe', '{\"fingerprints\":{\"2\":456}}', 2, 'Location2')",
             [],
         )
         .expect("Failed to insert employees");
 
-        // Insert test checkpoints
         conn.execute(
             "INSERT INTO checkpoints (id, location, allowed_roles) VALUES 
             (1, 'Location1', 'Admin'),
@@ -1195,7 +1126,6 @@ mod tests {
     fn test_initialize_database() {
         let conn = initialize_database().expect("Failed to initialize database");
 
-        // Check if tables are created
         let roles_table_exists: bool = conn
             .query_row(
                 "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='roles')",
@@ -1228,11 +1158,9 @@ mod tests {
     fn test_check_local_db() {
         let conn = setup_test_database();
 
-        // Test existing employee
         let exists = check_local_db(&conn, 1).expect("Failed to check local database");
         assert!(exists);
 
-        // Test non-existing employee
         let exists = check_local_db(&conn, 999).expect("Failed to check local database");
         assert!(!exists);
     }
@@ -1241,18 +1169,16 @@ mod tests {
     fn test_add_to_local_db() {
         let conn = setup_test_database();
 
-        // Add a new employee
         add_to_local_db(
             &conn,
             3,
             "New Employee".to_string(),
-            "hash3".to_string(),
+            "{\"fingerprints\":{\"1\":789}}".to_string(),
             2,
             "Location2".to_string(),
         )
         .expect("Failed to add to local database");
 
-        // Check if the employee was added
         let exists = check_local_db(&conn, 3).expect("Failed to check local database");
         assert!(exists);
     }
@@ -1261,10 +1187,8 @@ mod tests {
     fn test_delete_from_local_db() {
         let conn = setup_test_database();
 
-        // Delete an existing employee
         delete_from_local_db(&conn, 1).expect("Failed to delete from local database");
 
-        // Check if the employee was deleted
         let exists = check_local_db(&conn, 1).expect("Failed to check local database");
         assert!(!exists);
     }
@@ -1273,11 +1197,9 @@ mod tests {
     fn test_update_worker_entry() {
         let conn = setup_test_database();
 
-        // Update an existing employee
         update_worker_entry(&conn, 1, "Location3".to_string(), 2)
             .expect("Failed to update worker entry");
 
-        // Check if the employee was updated
         let mut stmt = conn
             .prepare("SELECT allowed_locations, role_id FROM employees WHERE id = ?")
             .expect("Failed to prepare statement");
@@ -1292,19 +1214,16 @@ mod tests {
     fn test_authenticate_rfid() {
         let conn = setup_test_database();
 
-        // Test valid RFID and checkpoint
         let mock_tag: Option<u32> = Some(1);
         let mock_checkpoint: Option<u32> = Some(1);
         let result = authenticate_rfid(&conn, &mock_tag, &mock_checkpoint);
         assert!(result);
 
-        // Test invalid RFID (wrong role for checkpoint)
         let mock_tag_mismatch_role: Option<u32> = Some(2);
         let result_mismatch_role =
             authenticate_rfid(&conn, &mock_tag_mismatch_role, &mock_checkpoint);
         assert!(!result_mismatch_role);
 
-        // Test invalid RFID (non-existent)
         let mock_tag_invalid: Option<u32> = Some(999);
         let result_invalid = authenticate_rfid(&conn, &mock_tag_invalid, &mock_checkpoint);
         assert!(!result_invalid);
@@ -1314,15 +1233,13 @@ mod tests {
     fn test_authenticate_fingerprint() {
         let conn = setup_test_database();
 
-        // Test valid fingerprint
         let mock_tag: Option<u32> = Some(1);
-        let mock_fingerprint: Option<String> = Some("hash1".to_string());
+        let mock_fingerprint: Option<String> = Some("123".to_string());
         let mock_checkpoint: Option<u32> = Some(1);
         let result =
             authenticate_fingerprint(&conn, &mock_tag, &mock_fingerprint, &mock_checkpoint);
         assert!(result);
 
-        // Test invalid fingerprint
         let mock_fingerprint_invalid: Option<String> = Some("wrong_hash".to_string());
         let result_invalid = authenticate_fingerprint(
             &conn,
@@ -1332,7 +1249,6 @@ mod tests {
         );
         assert!(!result_invalid);
 
-        // Test invalid RFID
         let mock_tag_invalid: Option<u32> = Some(999);
         let result_invalid_rfid = authenticate_fingerprint(
             &conn,
