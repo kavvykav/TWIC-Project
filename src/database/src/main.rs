@@ -1,22 +1,22 @@
 /****************
     IMPORTS
 ****************/
-use common::{DatabaseReply, DatabaseRequest, Role, DATABASE_ADDR, Parameters, 
-    keygen_string, encrypt_string, decrypt_string, encrypt_aes, decrypt_aes, generate_iv, generate_key
+use common::{
+    decrypt_aes, decrypt_string, encrypt_aes, encrypt_string, generate_iv, generate_key,
+    keygen_string, DatabaseReply, DatabaseRequest, Parameters, Role, DATABASE_ADDR,
 };
+use lazy_static::lazy_static;
 use rusqlite::{params, Connection, Result};
+use std::fs::File;
+use std::io::Write;
 use std::sync::Arc;
+use std::sync::Mutex as StdMutex;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::sync::Mutex;
-use lazy_static::lazy_static;
-use std::sync::Mutex as StdMutex;
-use std::fs::File;
-use std::io::Write;
-
 
 /*
-* Name: Lazy Static 
+* Name: Lazy Static
 * Function: For generating and storing a server keypair, also provides static reference for AES key and IV
 */
 lazy_static! {
@@ -24,8 +24,14 @@ lazy_static! {
         let params = Parameters::default();
         let keypair = keygen_string(&params, None);
         (
-            keypair.get("public").expect("Public key not found").to_string(),
-            keypair.get("secret").expect("Private key not found").to_string()
+            keypair
+                .get("public")
+                .expect("Public key not found")
+                .to_string(),
+            keypair
+                .get("secret")
+                .expect("Private key not found")
+                .to_string(),
         )
     });
 }
@@ -36,24 +42,17 @@ lazy_static! {
     static ref IV: StdMutex<Option<String>> = StdMutex::new(None);
 }
 
-
 /*
 * Name: write_db_public_key
-* Function: Saves public key for usage 
+* Function: Saves public key for usage
 */
 fn write_db_public_key() {
     let keypair = DB_KEYPAIR.lock().unwrap();
     let public_key = &keypair.0;
-    let mut file = File::create("db_public_key.txt")
-        .expect("Unable to create public key file");
+    let mut file = File::create("db_public_key.txt").expect("Unable to create public key file");
     file.write_all(public_key.as_bytes())
         .expect("Unable to write public key");
 }
-
-
-
-
-
 
 /*
 * Name: initialize_database
@@ -201,6 +200,13 @@ async fn handle_port_server_request(
             }
         }
         "ENROLL" => {
+            let worker_id = match req.worker_id {
+                Some(id) => id,
+                None => {
+                    println!("No RFID token ID provided");
+                    return DatabaseReply::error();
+                }
+            };
             let exists: bool = conn
                 .query_row(
                     "SELECT EXISTS(SELECT 1 FROM employees WHERE name = ?1 AND role_id = ?2)",
@@ -215,8 +221,8 @@ async fn handle_port_server_request(
             }
 
             let result = conn.execute(
-                "INSERT INTO employees (name, fingerprint_ids, role_id, allowed_locations) VALUES (?1, ?2, ?3, ?4)",
-                params![req.worker_name, req.worker_fingerprint, req.role_id, req.location],
+                "INSERT INTO employees (id, name, fingerprint_ids, role_id, allowed_locations) VALUES (?1, ?2, ?3, ?4)",
+                params![worker_id, req.worker_name, req.worker_fingerprint, req.role_id, req.location],
             );
             // fetch id
             let latest_id: i64 = conn
@@ -279,11 +285,15 @@ async fn handle_port_server_request(
             }
         }
         "KEY_EXCHANGE" => {
-            let port_public_key = req.public_key.as_ref().expect("Missing port server public key");
+            let port_public_key = req
+                .public_key
+                .as_ref()
+                .expect("Missing port server public key");
             let aes_key_temp = generate_key();
             let iv_temp = generate_iv();
 
-            let encrypted_aes_key = encrypt_string(port_public_key, &aes_key_temp, &rlwe_params, None);
+            let encrypted_aes_key =
+                encrypt_string(port_public_key, &aes_key_temp, &rlwe_params, None);
             let encrypted_iv = encrypt_string(port_public_key, &iv_temp, &rlwe_params, None);
 
             println!("Database generated AES Key: {:?}", aes_key_temp);

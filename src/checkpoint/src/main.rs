@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use std::env;
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpStream;
+use std::process::exit;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -325,6 +326,17 @@ fn main() {
         if let Some(function) = args.get(1) {
             match function.as_str() {
                 "tui" => {
+                    let worker_id: u32;
+                    let result = match rfid::get_token_id() {
+                        Ok(val) => {
+                            worker_id = val;
+                        }
+                        Err(e) => {
+                            eprintln!("Error: {e}");
+                            exit(1);
+                        }
+                    };
+
                     // Call the TUI
                     match common::App::new().run() {
                         Ok(Some(submission)) => {
@@ -338,6 +350,16 @@ fn main() {
                                 } => {
                                     let role_id = role_id.parse::<u32>().unwrap_or(0);
 
+                                    let worker_id: u32;
+                                    let result = match rfid::get_token_id() {
+                                        Ok(val) => {
+                                            worker_id = val;
+                                        }
+                                        Err(e) => {
+                                            eprintln!("Error: {e}");
+                                            exit(1);
+                                        }
+                                    };
                                     let fingerprint_json = format_fingerprint_json(
                                         checkpoint_id,
                                         biometric.parse::<u32>().unwrap_or(0), // Convert biometric to fingerprint ID (Does this work ok?)
@@ -346,6 +368,7 @@ fn main() {
                                     let enroll_req = CheckpointRequest::enroll_req(
                                         checkpoint_id,
                                         name,
+                                        worker_id,
                                         serde_json::to_string(&fingerprint_json).unwrap(),
                                         location,
                                         role_id,
@@ -535,9 +558,21 @@ fn main() {
 
                         let worker_id: u32;
 
-                        let mut result = match rfid::read_rfid() {
+                        let mut result = match rfid::get_token_id() {
                             Ok(val) => {
                                 worker_id = val;
+                            }
+                            Err(e) => {
+                                println!("Error reading RFID: {}", e);
+                                continue;
+                            }
+                        };
+
+                        let rfid_data: u32;
+
+                        let mut result = match rfid::read_rfid() {
+                            Ok(val) => {
+                                rfid_data = val;
                             }
                             Err(e) => {
                                 println!("Error reading RFID: {}", e);
@@ -554,8 +589,11 @@ fn main() {
 
                         let location = location.clone();
 
-                        let rfid_auth_req =
-                            CheckpointRequest::rfid_auth_request(checkpoint_id, worker_id);
+                        let rfid_auth_req = CheckpointRequest::rfid_auth_request(
+                            checkpoint_id,
+                            worker_id,
+                            rfid_data,
+                        );
                         let auth_reply: CheckpointReply = send_and_receive(
                             &mut stream,
                             &rfid_auth_req,
