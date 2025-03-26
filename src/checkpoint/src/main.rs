@@ -326,7 +326,7 @@ fn main() {
         if let Some(function) = args.get(1) {
             match function.as_str() {
                 "tui" => {
-                    let worker_id: u32;
+                    let worker_id: u64;
                     let result = match rfid::get_token_id() {
                         Ok(val) => {
                             worker_id = val;
@@ -350,7 +350,7 @@ fn main() {
                                 } => {
                                     let role_id = role_id.parse::<u32>().unwrap_or(0);
 
-                                    let worker_id: u32;
+                                    let worker_id: u64;
                                     let result = match rfid::get_token_id() {
                                         Ok(val) => {
                                             worker_id = val;
@@ -437,7 +437,7 @@ fn main() {
                                     role_id,
                                 } => {
                                     let role_id = role_id.parse::<u32>().unwrap_or(0);
-                                    let employee_id = employee_id.parse::<u32>().unwrap_or(0);
+                                    let employee_id = employee_id.parse::<u64>().unwrap_or(0);
 
                                     let update_req = CheckpointRequest::update_req(
                                         checkpoint_id,
@@ -487,7 +487,7 @@ fn main() {
                                     }
                                 }
                                 Submission::Delete { employee_id } => {
-                                    let employee_id = employee_id.parse::<u32>().unwrap_or(0);
+                                    let employee_id = employee_id.parse::<u64>().unwrap_or(0);
 
                                     let delete_req =
                                         CheckpointRequest::delete_req(checkpoint_id, employee_id);
@@ -556,7 +556,7 @@ fn main() {
                             lcd.clear();
                         }
 
-                        let worker_id: u32;
+                        let worker_id: u64;
 
                         let mut result = match rfid::get_token_id() {
                             Ok(val) => {

@@ -65,7 +65,7 @@ pub struct CheckpointReply {
 pub struct CheckpointRequest {
     pub command: String,
     pub checkpoint_id: Option<u32>,
-    pub worker_id: Option<u32>,
+    pub worker_id: Option<u64>,
     pub rfid_data: Option<u32>,
     pub worker_fingerprint: Option<String>,
     pub location: Option<String>,
@@ -91,7 +91,7 @@ impl CheckpointRequest {
 
     pub fn rfid_auth_request(
         checkpoint_id: u32,
-        worker_id: u32,
+        worker_id: u64,
         rfid_data: u32,
     ) -> CheckpointRequest {
         return CheckpointRequest {
@@ -109,7 +109,7 @@ impl CheckpointRequest {
 
     pub fn fingerprint_auth_req(
         checkpoint_id: u32,
-        worker_id: u32,
+        worker_id: u64,
         worker_fingerprint: String,
     ) -> CheckpointRequest {
         return CheckpointRequest {
@@ -128,7 +128,7 @@ impl CheckpointRequest {
     pub fn enroll_req(
         checkpoint_id: u32,
         worker_name: String,
-        worker_id: u32,
+        worker_id: u64,
         worker_fingerprint: String,
         location: String,
         role_id: u32,
@@ -148,7 +148,7 @@ impl CheckpointRequest {
 
     pub fn update_req(
         checkpoint_id: u32,
-        worker_id: u32,
+        worker_id: u64,
         new_role_id: u32,
         new_location: String,
     ) -> CheckpointRequest {
@@ -165,7 +165,7 @@ impl CheckpointRequest {
         };
     }
 
-    pub fn delete_req(checkpoint_id: u32, worker_id: u32) -> CheckpointRequest {
+    pub fn delete_req(checkpoint_id: u32, worker_id: u64) -> CheckpointRequest {
         return CheckpointRequest {
             command: "DELETE".to_string(),
             checkpoint_id: Some(checkpoint_id),

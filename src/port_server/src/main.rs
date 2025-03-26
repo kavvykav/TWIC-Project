@@ -95,7 +95,7 @@ fn initialize_database() -> Result<Connection> {
  * Name: check_local_db
  * Function: checks if a worker is in the local database.
  */
-fn check_local_db(conn: &Connection, id: u32) -> Result<bool> {
+fn check_local_db(conn: &Connection, id: u64) -> Result<bool> {
     let mut stmt = conn.prepare("SELECT EXISTS(SELECT 1 FROM employees WHERE id = ?)")?;
     let exists: bool = stmt.query_row([id], |row| row.get(0))?;
     Ok(exists)
@@ -108,7 +108,7 @@ fn check_local_db(conn: &Connection, id: u32) -> Result<bool> {
 
  fn add_to_local_db(
      conn: &Connection,
-     id: u32,
+     id: u64,
      name: String,
      fingerprint_json: String, // ✅ Now expecting JSON
      role_id: i32,
@@ -126,7 +126,7 @@ fn check_local_db(conn: &Connection, id: u32) -> Result<bool> {
     // Below this added this. Replaced that is directly above this
     fn add_to_local_db(
         conn: &Connection,
-        id: u32,
+        id: u64,
         name: String,
         new_fingerprint_json: Value,
         role_id: i32,
@@ -174,7 +174,7 @@ fn check_local_db(conn: &Connection, id: u32) -> Result<bool> {
  * Name: delete_from_local_db
  * Function: deletes a worker from the port server's database.
  */
-fn delete_from_local_db(conn: &Connection, id: u32) -> Result<(), rusqlite::Error> {
+fn delete_from_local_db(conn: &Connection, id: u64) -> Result<(), rusqlite::Error> {
     // Delete from employees table
     conn.execute("DELETE FROM employees WHERE id = ?1", params![id])?;
     Ok(())
@@ -186,7 +186,7 @@ fn delete_from_local_db(conn: &Connection, id: u32) -> Result<(), rusqlite::Erro
  */
 fn update_worker_entry(
     conn: &Connection,
-    id: u32,
+    id: u64,
     locations: String,
     role: i32,
 ) -> Result<(), rusqlite::Error> {
@@ -1001,7 +1001,7 @@ fn send_response<T: serde::Serialize>(
 }
 
 // Writes log entry to `auth.log`
-fn log_event(worker_id: Option<u32>, checkpoint_id: Option<u32>, method: &str, status: &str) {
+fn log_event(worker_id: Option<u64>, checkpoint_id: Option<u32>, method: &str, status: &str) {
     let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
     let log_entry = format!(
         "[{}] Worker ID: {:?}, Checkpoint ID: {:?}, Method: {}, Status: {}\n",

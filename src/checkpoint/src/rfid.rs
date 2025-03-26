@@ -49,7 +49,7 @@ pub fn read_rfid() -> Result<u32, String> {
     }
 }
 
-pub fn get_token_id() -> Result<u32, String> {
+pub fn get_token_id() -> Result<u64, String> {
     let output = Command::new("python3")
         .arg("rfid.py")
         .arg("3")
@@ -65,7 +65,7 @@ pub fn get_token_id() -> Result<u32, String> {
         // Ensure the data is numeric before parsing
         if data_str.chars().all(|c| c.is_digit(10)) {
             data_str
-                .parse::<u32>()
+                .parse::<u64>()
                 .map_err(|e| format!("Parse error: {}", e))
         } else {
             Err(format!(
