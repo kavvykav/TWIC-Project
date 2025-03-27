@@ -7,6 +7,7 @@ use common::{
 };
 use lazy_static::lazy_static;
 use rusqlite::{params, Connection, Result};
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::Write;
 use std::sync::Arc;
@@ -146,7 +147,7 @@ async fn handle_port_server_request(
                 "Checkpoint id is: {}",
                 req.checkpoint_id.unwrap_or_default()
             );
-            
+
             println!("DEBUG: received message {}", req.command);
             println!("DEBUG: worker id: {}", req.worker_id.unwrap_or(0));
 
@@ -176,12 +177,19 @@ async fn handle_port_server_request(
             );
 
                     match worker_data {
-                        Ok((worker_fingerprint, allowed_locations, name, role_id)) => {
-                            // Return the authentication reply
+                        Ok((fingerprint_map_str, allowed_locations, name, role_id)) => {
+                            let fingerprint_map: HashMap<u32, String> =
+                                serde_json::from_str(&fingerprint_map_str)
+                                    .unwrap_or_else(|_| HashMap::new());
+
+                            let fingerprint_id = req.checkpoint_id.and_then(|checkpoint_id| {
+                                fingerprint_map.get(&checkpoint_id).cloned()
+                            });
+
                             return DatabaseReply::auth_reply(
                                 req.checkpoint_id.unwrap_or_default(),
                                 req.worker_id.unwrap_or_default(),
-                                worker_fingerprint,
+                                fingerprint_id.unwrap_or_default(), // Sends only the fingerprint for the checkpoint
                                 role_id,
                                 allowed_roles,
                                 location,
@@ -224,10 +232,19 @@ async fn handle_port_server_request(
                 return DatabaseReply::error();
             }
 
-            let result = conn.execute(
-                "INSERT INTO employees (id, name, fingerprint_ids, role_id, allowed_locations, rfid_data) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                params![worker_id, req.worker_name, req.worker_fingerprint, req.role_id, req.location, req.rfid_data],
+            let mut fingerprint_map = HashMap::new();
+            fingerprint_map.insert(
+                req.checkpoint_id.unwrap_or(0),
+                req.worker_fingerprint.clone().unwrap_or_default(),
             );
+
+            // Convert HashMap to a JSON string
+            let fingerprint_json = serde_json::to_string(&fingerprint_map).unwrap_or_default();
+
+            let result = conn.execute(
+    "INSERT INTO employees (id, name, fingerprint_ids, role_id, allowed_locations, rfid_data) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+    params![worker_id, req.worker_name, fingerprint_json, req.role_id, req.location, req.rfid_data],
+);
             // fetch id
             let latest_id: i64 = conn
                 .query_row("SELECT LAST_INSERT_ROWID()", [], |row| row.get(0))
