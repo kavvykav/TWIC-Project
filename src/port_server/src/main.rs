@@ -736,6 +736,7 @@ fn handle_init_request(
  * Name: handle_authenticate
  * Function: Server logic for an authentication request modelled by a state machine.
  */
+
 fn handle_authenticate(
     conn: &Arc<Mutex<Connection>>,
     request: DatabaseRequest,
@@ -746,24 +747,20 @@ fn handle_authenticate(
     let mut clients = clients.lock().unwrap();
     let client = clients.get_mut(&client_id).ok_or("Client not found")?;
 
-    println!("Worker ID is {}", request.worker_id.unwrap());
+    let worker_id = request.worker_id.ok_or("Worker ID is missing".to_string())?;
+    println!("Worker ID is {}", worker_id);
 
-    let next_state: CheckpointState;
     let response = match client.state {
         CheckpointState::WaitForRfid => {
-            if authenticate_rfid(&conn.lock().unwrap(), &request.worker_id, &request.checkpoint_id) {
-                println!(
-                    "RFID Verified: {:?} matches database entry.",
-                    request.worker_id.unwrap()
-                );
+            if authenticate_rfid(&conn.lock().unwrap(), &Some(worker_id), &request.checkpoint_id) {
+                println!("RFID Verified: {:?} matches database entry.", worker_id);
                 println!("Next state: WaitForFingerprint");
 
-                next_state = CheckpointState::WaitForFingerprint;
-                client.state = next_state.clone();
+                client.state = CheckpointState::WaitForFingerprint;
                 CheckpointReply {
                     status: "success".to_string(),
                     checkpoint_id: request.checkpoint_id.map(|id| id.into()),
-                    worker_id: request.worker_id,
+                    worker_id: Some(worker_id),
                     fingerprint: None,
                     data: None,
                     auth_response: Some(CheckpointState::WaitForFingerprint),
@@ -771,8 +768,8 @@ fn handle_authenticate(
                 }
             } else {
                 println!("Next state: AuthFailed");
-                next_state = CheckpointState::AuthFailed;
-                client.state = next_state.clone();
+
+                client.state = CheckpointState::AuthFailed;
                 CheckpointReply {
                     status: "failed".to_string(),
                     checkpoint_id: request.checkpoint_id.map(|id| id.into()),
@@ -787,34 +784,38 @@ fn handle_authenticate(
         CheckpointState::WaitForFingerprint => {
             if authenticate_fingerprint(
                 &conn.lock().unwrap(),
-                &request.worker_id,
+                &Some(worker_id),
                 &request.worker_fingerprint,
                 &request.checkpoint_id,
             ) {
                 println!("Next state: AuthSuccessful");
-                next_state = CheckpointState::AuthSuccessful;
-                client.state = next_state.clone();
+
+                client.state = CheckpointState::AuthSuccessful;
                 CheckpointReply::auth_reply(CheckpointState::AuthSuccessful)
             } else {
                 println!("Next state: AuthFailed");
-                next_state = CheckpointState::AuthFailed;
-                client.state = next_state.clone();
+
+                client.state = CheckpointState::AuthFailed;
                 CheckpointReply::auth_reply(CheckpointState::AuthFailed)
             }
         }
-        CheckpointState::AuthSuccessful | CheckpointState::AuthFailed => {
-            println!("Next state: WaitForRfid");
-            next_state = CheckpointState::WaitForRfid;
-            client.state = next_state.clone();
-            CheckpointReply::auth_reply(CheckpointState::WaitForRfid)
+        _ => {
+            return Err("Invalid state".to_string());
         }
     };
 
-    send_response(&response, stream)
+    if client.state == CheckpointState::AuthSuccessful || client.state == CheckpointState::AuthFailed {
+        println!("Next state: WaitForRfid");
+        client.state = CheckpointState::WaitForRfid;
+        send_response(&CheckpointReply::auth_reply(CheckpointState::WaitForRfid), stream);
+    } else {
+        send_response(&response, stream);
+    }
+
+    Ok(())
 }
 
-/*
- * Name: handle_database_request
+/* Name: handle_database_request
  * Function: handles Update, Enroll and Delete requests from the centralized database.
  */
 fn handle_database_request(
