@@ -769,6 +769,7 @@ fn handle_authenticate(
                 }
             } else {
                 next_state = CheckpointState::AuthFailed;
+                client.state = next_state;
                 CheckpointReply {
                     status: "failed".to_string(),
                     checkpoint_id: request.checkpoint_id.map(|id| id.into()),
@@ -791,6 +792,7 @@ fn handle_authenticate(
                 CheckpointReply::auth_reply(CheckpointState::AuthSuccessful)
             } else {
                 next_state = CheckpointState::AuthFailed;
+                client.state = next_state;
                 CheckpointReply::auth_reply(CheckpointState::AuthFailed)
             }
         }
