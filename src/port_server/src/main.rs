@@ -598,25 +598,37 @@ fn handle_client(
     let mut reader = BufReader::new(stream.lock().unwrap().try_clone().unwrap());
     let mut buffer = Vec::new();
     let mut last_state_change = Instant::now();
+    let mut previous_state = CheckpointState::WaitForRfid; // Track previous state
 
     while running.load(Ordering::SeqCst) {
-       {
+        {
             let mut clients_lock = clients.lock().unwrap();
             if let Some(client) = clients_lock.get_mut(&client_id) {
-                if let CheckpointState::WaitForFingerprint = client.state {
-                    if last_state_change.elapsed() > Duration::from_secs(15) {
-                        println!("Client {} timed out waiting for fingerprint", client_id);
-
-                        // Transition state back to WaitForRfid
-                        client.state = CheckpointState::WaitForRfid;
-                        last_state_change = Instant::now(); // Reset the timer
-
-                    }
-                } else {
-                    last_state_change = Instant::now(); // Reset timer if state changes
+                // If the state has JUST changed to WaitForFingerprint, reset the timer
+                if client.state == CheckpointState::WaitForFingerprint
+                    && previous_state != CheckpointState::WaitForFingerprint
+                {
+                    last_state_change = Instant::now();
                 }
+
+                // Check if the client has been in WaitForFingerprint for too long
+                if client.state == CheckpointState::WaitForFingerprint
+                    && last_state_change.elapsed() > Duration::from_secs(15)
+                {
+                    println!(
+                        "Client {} timed out waiting for fingerprint, transitioning to WaitForRfid",
+                        client_id
+                    );
+
+                    // Transition state back to WaitForRfid
+                    client.state = CheckpointState::WaitForRfid;
+                }
+
+                // Update the previous state tracker
+                previous_state = client.state.clone();
             }
         }
+
         match read_request(
             &conn,
             &mut reader,
@@ -639,7 +651,6 @@ fn handle_client(
     println!("Shutting down thread for client {}", client_id);
     clients.lock().unwrap().remove(&client_id);
 }
-
 /*
  * Name: read_request
  * Function: Reads and deserializes an oncoming request.
