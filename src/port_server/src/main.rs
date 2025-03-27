@@ -756,8 +756,10 @@ fn handle_authenticate(
                     "RFID Verified: {:?} matches database entry.",
                     request.worker_id.unwrap()
                 );
+                println!("Next state: WaitForFingerprint");
 
                 next_state = CheckpointState::WaitForFingerprint;
+                client.state = next_state.clone();
                 CheckpointReply {
                     status: "success".to_string(),
                     checkpoint_id: request.checkpoint_id.map(|id| id.into()),
@@ -768,8 +770,9 @@ fn handle_authenticate(
                     rfid_ver: Some(true),
                 }
             } else {
+                println!("Next state: AuthFailed");
                 next_state = CheckpointState::AuthFailed;
-                client.state = next_state;
+                client.state = next_state.clone();
                 CheckpointReply {
                     status: "failed".to_string(),
                     checkpoint_id: request.checkpoint_id.map(|id| id.into()),
@@ -788,20 +791,24 @@ fn handle_authenticate(
                 &request.worker_fingerprint,
                 &request.checkpoint_id,
             ) {
+                println!("Next state: AuthSuccessful");
                 next_state = CheckpointState::AuthSuccessful;
+                client.state = next_state.clone();
                 CheckpointReply::auth_reply(CheckpointState::AuthSuccessful)
             } else {
+                println!("Next state: AuthFailed");
                 next_state = CheckpointState::AuthFailed;
-                client.state = next_state;
+                client.state = next_state.clone();
                 CheckpointReply::auth_reply(CheckpointState::AuthFailed)
             }
         }
         CheckpointState::AuthSuccessful | CheckpointState::AuthFailed => {
+            println!("Next state: WaitForRfid");
             next_state = CheckpointState::WaitForRfid;
+            client.state = next_state.clone();
             CheckpointReply::auth_reply(CheckpointState::WaitForRfid)
         }
     };
-    client.state = next_state;
 
     send_response(&response, stream)
 }
