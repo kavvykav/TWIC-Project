@@ -11,12 +11,12 @@ use rusqlite::{params, Connection, Result};
 use std::fs::OpenOptions;
 use std::{
     collections::HashMap,
-    io::{BufRead, BufReader, Write},
+    io::{BufRead, BufReader, Write, ErrorKind::WouldBlock},
     net::{TcpListener, TcpStream},
     sync::atomic::{AtomicBool, Ordering},
     sync::{Arc, Mutex},
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 use lazy_static::lazy_static;
 use serde_json::{json, Value};
@@ -597,8 +597,50 @@ fn handle_client(
 
     let mut reader = BufReader::new(stream.lock().unwrap().try_clone().unwrap());
     let mut buffer = Vec::new();
+    let mut last_state_change = Instant::now();
+    let mut previous_state = CheckpointState::WaitForRfid;
 
     while running.load(Ordering::SeqCst) {
+        // Check state and timer outside of the clients_lock scope
+        let should_timeout = {
+            let clients_lock = clients.lock().unwrap();
+            if let Some(client) = clients_lock.get(&client_id) {
+                // If state just changed to WaitForFingerprint, reset timer
+                if client.state == CheckpointState::WaitForFingerprint 
+                    && previous_state != CheckpointState::WaitForFingerprint 
+                {
+                    last_state_change = Instant::now();
+                }
+
+                // Check if timeout occurred
+                client.state == CheckpointState::WaitForFingerprint 
+                    && last_state_change.elapsed() > Duration::from_secs(15)
+            } else {
+                false
+            }
+        };
+
+        // If timeout occurred, update state
+        if should_timeout {
+            println!(
+                "Client {} timed out waiting for fingerprint, transitioning to WaitForRfid",
+                client_id
+            );
+
+            let mut clients_lock = clients.lock().unwrap();
+            if let Some(client) = clients_lock.get_mut(&client_id) {
+                client.state = CheckpointState::WaitForRfid;
+            }
+        }
+
+        // Update previous state
+        {
+            let clients_lock = clients.lock().unwrap();
+            if let Some(client) = clients_lock.get(&client_id) {
+                previous_state = client.state.clone();
+            }
+        }
+
         match read_request(
             &conn,
             &mut reader,
@@ -621,7 +663,6 @@ fn handle_client(
     println!("Shutting down thread for client {}", client_id);
     clients.lock().unwrap().remove(&client_id);
 }
-
 /*
  * Name: read_request
  * Function: Reads and deserializes an oncoming request.
@@ -634,22 +675,27 @@ fn read_request(
     clients: &Arc<Mutex<HashMap<usize, Client>>>,
     buffer: &mut Vec<u8>,
 ) -> Result<(), String> {
-    println!("Received a request");
     buffer.clear();
     match reader.read_until(b'\0', buffer) {
         Ok(0) => Err("Client disconnected".into()),
-        Ok(_) => {
-            buffer.pop();
-            let request_str = parse_request(buffer)?;
-            let request: DatabaseRequest = serde_json::from_str(&request_str)
-                .map_err(|e| format!("Failed to parse request: {}", e))?;
-            parse_command_from_request(conn, request, stream, client_id, clients)?;
+        Ok(n) => {
+            // Only process if we actually got data
+            if n > 0 {
+                buffer.pop(); // Remove null terminator
+                let request_str = parse_request(buffer)?;
+                let request: DatabaseRequest = serde_json::from_str(&request_str)
+                    .map_err(|e| format!("Failed to parse request: {}", e))?;
+                parse_command_from_request(conn, request, stream, client_id, clients)?;
+            }
             Ok(())
+        }
+        Err(e) if e.kind() == WouldBlock => {
+            // No data available - this is expected in non-blocking mode
+            Err("WouldBlock".into())
         }
         Err(e) => Err(format!("Error reading from client: {}", e)),
     }
 }
-
 fn parse_request(buffer: &[u8]) -> Result<String, String> {
     String::from_utf8(buffer.to_vec())
         .map(|s| s.trim_end_matches('\0').trim().to_string())
@@ -802,9 +848,9 @@ fn handle_authenticate(
     if client.state == CheckpointState::AuthSuccessful || client.state == CheckpointState::AuthFailed {
         println!("Next state: WaitForRfid");
         send_response(&CheckpointReply::auth_reply(client.state.clone()), stream);
-        thread::sleep(Duration::from_secs(1));
+        thread::sleep(Duration::from_secs(5));
         client.state = CheckpointState::WaitForRfid;
-        send_response(&CheckpointReply::auth_reply(CheckpointState::WaitForRfid), stream);
+        //send_response(&CheckpointReply::auth_reply(CheckpointState::WaitForRfid), stream);
     } else {
         send_response(&response, stream);
     }
