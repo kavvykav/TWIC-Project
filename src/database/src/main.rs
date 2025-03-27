@@ -146,7 +146,7 @@ async fn handle_port_server_request(
                 "Checkpoint id is: {}",
                 req.checkpoint_id.unwrap_or_default()
             );
-            
+
             println!("DEBUG: received message {}", req.command);
             println!("DEBUG: worker id: {}", req.worker_id.unwrap_or(0));
 
@@ -177,11 +177,17 @@ async fn handle_port_server_request(
 
                     match worker_data {
                         Ok((worker_fingerprint, allowed_locations, name, role_id)) => {
-                            // Return the authentication reply
+                            // Parse the fingerprint ID from the string
+                            let fingerprint_id = worker_fingerprint
+                                .split(':')
+                                .last()
+                                .and_then(|s| s.trim().trim_matches('}').trim().parse::<u32>().ok())
+                                .unwrap_or(0); // Default to 0 if parsing fails
+                                               // Return the authentication reply
                             return DatabaseReply::auth_reply(
                                 req.checkpoint_id.unwrap_or_default(),
                                 req.worker_id.unwrap_or_default(),
-                                worker_fingerprint,
+                                fingerprint_id,
                                 role_id,
                                 allowed_roles,
                                 location,
