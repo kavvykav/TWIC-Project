@@ -1,20 +1,20 @@
 /**********************************
             IMPORTS
 **********************************/
+use base64::{decode, encode};
+use openssl::symm::{Cipher, Crypter, Mode};
+use polynomial_ring::Polynomial;
+use rand::rngs::StdRng;
+use rand::Rng;
+use rand::SeedableRng;
+use rand_distr::{Distribution, Normal, Uniform};
 use rppal::i2c::I2c;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::net::TcpStream;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
-use polynomial_ring::Polynomial;
-use rand_distr::{Uniform, Normal, Distribution};
-use rand::SeedableRng;
-use rand::rngs::StdRng;
-use rand::Rng;
-use std::collections::HashMap;
-use openssl::symm::{Cipher, Crypter, Mode};
-use base64::{encode, decode};
 
 /*************************************
     ROLES FOR ROLE BASED AUTH
@@ -54,17 +54,19 @@ pub enum CheckpointState {
 pub struct CheckpointReply {
     pub status: String,
     pub checkpoint_id: Option<u32>,
-    pub worker_id: Option<u32>,
-    pub fingerprint: Option<String>,
+    pub worker_id: Option<u64>,
+    pub fingerprint: Option<u32>,
     pub data: Option<String>,
     pub auth_response: Option<CheckpointState>,
+    pub rfid_ver: Option<bool>,
 }
 
 #[derive(Serialize, Clone, Deserialize, Debug)]
 pub struct CheckpointRequest {
     pub command: String,
     pub checkpoint_id: Option<u32>,
-    pub worker_id: Option<u32>,
+    pub worker_id: Option<u64>,
+    pub rfid_data: Option<u32>,
     pub worker_fingerprint: Option<String>,
     pub location: Option<String>,
     pub authorized_roles: Option<String>,
@@ -78,6 +80,7 @@ impl CheckpointRequest {
             command: "INIT_REQUEST".to_string(),
             checkpoint_id: None,
             worker_id: None,
+            rfid_data: None,
             worker_fingerprint: None,
             location: Some(location),
             authorized_roles: Some(authorized_roles),
@@ -86,11 +89,16 @@ impl CheckpointRequest {
         };
     }
 
-    pub fn rfid_auth_request(checkpoint_id: u32, worker_id: u32) -> CheckpointRequest {
+    pub fn rfid_auth_request(
+        checkpoint_id: u32,
+        worker_id: u64,
+        rfid_data: u32,
+    ) -> CheckpointRequest {
         return CheckpointRequest {
             command: "AUTHENTICATE".to_string(),
             checkpoint_id: Some(checkpoint_id),
             worker_id: Some(worker_id),
+            rfid_data: Some(rfid_data),
             worker_fingerprint: Some("dummy hash".to_string()),
             location: None,
             authorized_roles: None,
@@ -101,13 +109,14 @@ impl CheckpointRequest {
 
     pub fn fingerprint_auth_req(
         checkpoint_id: u32,
-        worker_id: u32,
+        worker_id: u64,
         worker_fingerprint: String,
     ) -> CheckpointRequest {
         return CheckpointRequest {
             command: "AUTHENTICATE".to_string(),
             checkpoint_id: Some(checkpoint_id),
             worker_id: Some(worker_id),
+            rfid_data: None,
             worker_fingerprint: Some(worker_fingerprint),
             location: None,
             authorized_roles: None,
@@ -119,6 +128,8 @@ impl CheckpointRequest {
     pub fn enroll_req(
         checkpoint_id: u32,
         worker_name: String,
+        worker_id: u64,
+        rfid_data: u32,
         worker_fingerprint: String,
         location: String,
         role_id: u32,
@@ -126,7 +137,8 @@ impl CheckpointRequest {
         return CheckpointRequest {
             command: "ENROLL".to_string(),
             checkpoint_id: Some(checkpoint_id),
-            worker_id: None,
+            worker_id: Some(worker_id),
+            rfid_data: Some(rfid_data),
             worker_fingerprint: Some(worker_fingerprint),
             location: Some(location),
             authorized_roles: None,
@@ -137,7 +149,7 @@ impl CheckpointRequest {
 
     pub fn update_req(
         checkpoint_id: u32,
-        worker_id: u32,
+        worker_id: u64,
         new_role_id: u32,
         new_location: String,
     ) -> CheckpointRequest {
@@ -145,6 +157,7 @@ impl CheckpointRequest {
             command: "UPDATE".to_string(),
             checkpoint_id: Some(checkpoint_id),
             worker_id: Some(worker_id),
+            rfid_data: None,
             worker_fingerprint: None,
             location: Some(new_location),
             authorized_roles: None,
@@ -153,11 +166,12 @@ impl CheckpointRequest {
         };
     }
 
-    pub fn delete_req(checkpoint_id: u32, worker_id: u32) -> CheckpointRequest {
+    pub fn delete_req(checkpoint_id: u32, worker_id: u64) -> CheckpointRequest {
         return CheckpointRequest {
             command: "DELETE".to_string(),
             checkpoint_id: Some(checkpoint_id),
             worker_id: Some(worker_id),
+            rfid_data: None,
             worker_fingerprint: None,
             location: None,
             authorized_roles: None,
@@ -176,6 +190,7 @@ impl CheckpointReply {
             fingerprint: None,
             data: None,
             auth_response: None,
+            rfid_ver: Some(false),
         };
     }
     pub fn auth_reply(state: CheckpointState) -> Self {
@@ -186,6 +201,7 @@ impl CheckpointReply {
             fingerprint: None,
             data: None,
             auth_response: Some(state),
+            rfid_ver: Some(true),
         };
     }
 
@@ -197,6 +213,7 @@ impl CheckpointReply {
             fingerprint: None,
             data: None,
             auth_response: None,
+            rfid_ver: None,
         };
     }
 }
@@ -220,7 +237,8 @@ pub struct Client {
 pub struct DatabaseRequest {
     pub command: String,
     pub checkpoint_id: Option<u32>,
-    pub worker_id: Option<u32>,
+    pub worker_id: Option<u64>,
+    pub rfid_data: Option<u32>,
     pub worker_name: Option<String>,
     pub worker_fingerprint: Option<String>,
     pub location: Option<String>,
@@ -237,8 +255,8 @@ pub struct DatabaseRequest {
 pub struct DatabaseReply {
     pub status: String,
     pub checkpoint_id: Option<u32>,
-    pub worker_id: Option<u32>,
-    pub worker_fingerprint: Option<String>,
+    pub worker_id: Option<u64>,
+    pub worker_fingerprint: Option<u32>,
     pub role_id: Option<u32>,
     pub authorized_roles: Option<String>,
     pub location: Option<String>,
@@ -251,11 +269,11 @@ pub struct DatabaseReply {
 }
 
 impl DatabaseReply {
-    pub fn success() -> Self {
+    pub fn success(worker_id: u64) -> Self {
         DatabaseReply {
             status: "success".to_string(),
             checkpoint_id: None,
-            worker_id: None,
+            worker_id: Some(worker_id),
             worker_fingerprint: None,
             role_id: None,
             authorized_roles: None,
@@ -306,8 +324,8 @@ impl DatabaseReply {
     }
     pub fn auth_reply(
         checkpoint_id: u32,
-        worker_id: u32,
-        worker_fingerprint: String,
+        worker_id: u64,
+        worker_fingerprint: u32,
         role_id: u32,
         authorized_roles: String,
         location: String,
@@ -924,18 +942,17 @@ impl App {
     }
 }
 
-
 /***************************************
-*           Cryptography 
+*           Cryptography
 ****************************************/
 
 #[derive(Debug)]
 pub struct Parameters {
-    pub n: usize,       // Polynomial modulus degree
-    pub q: i64,       // Ciphertext modulus
-    pub t: i64,       // Plaintext modulus
+    pub n: usize,           // Polynomial modulus degree
+    pub q: i64,             // Ciphertext modulus
+    pub t: i64,             // Plaintext modulus
     pub f: Polynomial<i64>, // Polynomial modulus (x^n + 1 representation)
-    pub sigma: f64,    // Standard deviation for normal distribution
+    pub sigma: f64,         // Standard deviation for normal distribution
 }
 
 impl Default for Parameters {
@@ -943,42 +960,47 @@ impl Default for Parameters {
         let n = 512;
         let q = 1048576;
         let t = 256;
-        let mut poly_vec = vec![0i64;n+1];
+        let mut poly_vec = vec![0i64; n + 1];
         poly_vec[0] = 1;
         poly_vec[n] = 1;
         let f = Polynomial::new(poly_vec);
         let sigma = 8.0;
-        Parameters { n, q, t, f, sigma}
+        Parameters { n, q, t, f, sigma }
     }
 }
 
 // ---------- Polynomial Operations ----------
-pub fn mod_coeffs(x : Polynomial<i64>, modulus : i64) -> Polynomial<i64> {
-	//Take remainder of the coefficients of a polynom by a given modulus
-	//Args:
-	//	x: polynom
-	//	modulus: coefficient modulus
-	//Returns:
-	//	polynomial in Z_modulus[X]
-	let coeffs = x.coeffs();
-	let mut newcoeffs = vec![];
-	let mut c;
-	if coeffs.len() == 0 {
-		// return original input for the zero polynomial
-		x
-	} else {
-		for i in 0..coeffs.len() {
-			c = coeffs[i].rem_euclid(modulus);
-			if c > modulus/2 {
-				c = c-modulus;
-			}
-			newcoeffs.push(c);
-		}
-		Polynomial::new(newcoeffs)
-	}
+pub fn mod_coeffs(x: Polynomial<i64>, modulus: i64) -> Polynomial<i64> {
+    //Take remainder of the coefficients of a polynom by a given modulus
+    //Args:
+    //	x: polynom
+    //	modulus: coefficient modulus
+    //Returns:
+    //	polynomial in Z_modulus[X]
+    let coeffs = x.coeffs();
+    let mut newcoeffs = vec![];
+    let mut c;
+    if coeffs.len() == 0 {
+        // return original input for the zero polynomial
+        x
+    } else {
+        for i in 0..coeffs.len() {
+            c = coeffs[i].rem_euclid(modulus);
+            if c > modulus / 2 {
+                c = c - modulus;
+            }
+            newcoeffs.push(c);
+        }
+        Polynomial::new(newcoeffs)
+    }
 }
 
-pub fn polymul(x : &Polynomial<i64>, y : &Polynomial<i64>, modulus : i64, f : &Polynomial<i64>) -> Polynomial<i64> {
+pub fn polymul(
+    x: &Polynomial<i64>,
+    y: &Polynomial<i64>,
+    modulus: i64,
+    f: &Polynomial<i64>,
+) -> Polynomial<i64> {
     //Multiply two polynoms
     //Args:
     //	x, y: two polynoms to be multiplied.
@@ -986,17 +1008,21 @@ pub fn polymul(x : &Polynomial<i64>, y : &Polynomial<i64>, modulus : i64, f : &P
     //	f: polynomial modulus.
     //Returns:
     //	polynomial in Z_modulus[X]/(f).
-	let mut r = x*y;
+    let mut r = x * y;
     r.division(f);
     if modulus != 0 {
         mod_coeffs(r, modulus)
-    }
-    else{
+    } else {
         r
     }
 }
 
-pub fn polyadd(x : &Polynomial<i64>, y : &Polynomial<i64>, modulus : i64, f : &Polynomial<i64>) -> Polynomial<i64> {
+pub fn polyadd(
+    x: &Polynomial<i64>,
+    y: &Polynomial<i64>,
+    modulus: i64,
+    f: &Polynomial<i64>,
+) -> Polynomial<i64> {
     //Add two polynoms
     //Args:
     //	x, y: two polynoms to be added.
@@ -1004,28 +1030,31 @@ pub fn polyadd(x : &Polynomial<i64>, y : &Polynomial<i64>, modulus : i64, f : &P
     //	f: polynomial modulus.
     //Returns:
     //	polynomial in Z_modulus[X]/(f).
-	let mut r = x+y;
+    let mut r = x + y;
     r.division(f);
     if modulus != 0 {
         mod_coeffs(r, modulus)
-    }
-    else{
+    } else {
         r
     }
 }
 
-pub fn polyinv(x : &Polynomial<i64>, modulus: i64) -> Polynomial<i64> {
+pub fn polyinv(x: &Polynomial<i64>, modulus: i64) -> Polynomial<i64> {
     //Additive inverse of polynomial x modulo modulus
     let y = -x;
-    if modulus != 0{
-      mod_coeffs(y, modulus)
+    if modulus != 0 {
+        mod_coeffs(y, modulus)
+    } else {
+        y
     }
-    else {
-      y
-    }
-  }
+}
 
-pub fn polysub(x : &Polynomial<i64>, y : &Polynomial<i64>, modulus : i64, f : Polynomial<i64>) -> Polynomial<i64> {
+pub fn polysub(
+    x: &Polynomial<i64>,
+    y: &Polynomial<i64>,
+    modulus: i64,
+    f: Polynomial<i64>,
+) -> Polynomial<i64> {
     //Subtract two polynoms
     //Args:
     //	x, y: two polynoms to be added.
@@ -1033,7 +1062,7 @@ pub fn polysub(x : &Polynomial<i64>, y : &Polynomial<i64>, modulus : i64, f : Po
     //	f: polynomial modulus.
     //Returns:
     //	polynomial in Z_modulus[X]/(f).
-	polyadd(x, &polyinv(y, modulus), modulus, &f)
+    polyadd(x, &polyinv(y, modulus), modulus, &f)
 }
 
 // ---------- Polynomial Generators ----------
@@ -1044,7 +1073,7 @@ pub fn gen_binary_poly(size: usize, seed: Option<u64>) -> Polynomial<i64> {
         None => {
             let mut rng = rand::rng();
             StdRng::from_seed(rng.random::<[u8; 32]>())
-        },
+        }
     };
     let coeffs: Vec<i64> = (0..size).map(|_| between.sample(&mut rng)).collect();
     Polynomial::new(coeffs)
@@ -1057,12 +1086,11 @@ pub fn gen_ternary_poly(size: usize, seed: Option<u64>) -> Polynomial<i64> {
         None => {
             let mut rng = rand::rng();
             StdRng::from_seed(rng.random::<[u8; 32]>())
-        },
+        }
     };
     let coeffs: Vec<i64> = (0..size).map(|_| between.sample(&mut rng)).collect();
     Polynomial::new(coeffs)
 }
-
 
 pub fn gen_uniform_poly(size: usize, q: i64, seed: Option<u64>) -> Polynomial<i64> {
     let between = Uniform::new(0, q).expect("Failed to create uniform distribution");
@@ -1071,7 +1099,7 @@ pub fn gen_uniform_poly(size: usize, q: i64, seed: Option<u64>) -> Polynomial<i6
         None => {
             let mut rng = rand::rng();
             StdRng::from_seed(rng.random::<[u8; 32]>())
-        },
+        }
     };
     let coeffs: Vec<i64> = (0..size).map(|_| between.sample(&mut rng)).collect();
     Polynomial::new(coeffs)
@@ -1084,12 +1112,13 @@ pub fn gen_normal_poly(size: usize, sigma: f64, seed: Option<u64>) -> Polynomial
         None => {
             let mut rng = rand::rng();
             StdRng::from_seed(rng.random::<[u8; 32]>())
-        },
+        }
     };
-    let coeffs: Vec<i64> = (0..size).map(|_| normal.sample(&mut rng).round() as i64).collect();
+    let coeffs: Vec<i64> = (0..size)
+        .map(|_| normal.sample(&mut rng).round() as i64)
+        .collect();
     Polynomial::new(coeffs)
 }
-
 
 //returns the nearest integer to a/b
 pub fn nearest_int(a: i64, b: i64) -> i64 {
@@ -1098,37 +1127,41 @@ pub fn nearest_int(a: i64, b: i64) -> i64 {
 
 // ---------- RLWE Key Generation ----------
 pub fn keygen(params: &Parameters, seed: Option<u64>) -> ([Polynomial<i64>; 2], Polynomial<i64>) {
-
     let (n, q, f) = (params.n, params.q, &params.f);
 
     //Generate Keys
     let secret = gen_ternary_poly(n, seed);
     let a: Polynomial<i64> = gen_uniform_poly(n, q, seed);
     let error = gen_ternary_poly(n, seed);
-    let b = polyadd(&polymul(&polyinv(&a,q*q), &secret, q*q, &f), &polyinv(&error,q*q), q*q, &f);
-    
+    let b = polyadd(
+        &polymul(&polyinv(&a, q * q), &secret, q * q, &f),
+        &polyinv(&error, q * q),
+        q * q,
+        &f,
+    );
 
     ([b, a], secret)
 }
 
-
-pub fn keygen_string(params: &Parameters, seed: Option<u64>) -> HashMap<String,String> {
-
-    let (public, secret) = keygen(params,seed);
-    let mut pk_coeffs: Vec<i64> = Vec::with_capacity(2*params.n);
+pub fn keygen_string(params: &Parameters, seed: Option<u64>) -> HashMap<String, String> {
+    let (public, secret) = keygen(params, seed);
+    let mut pk_coeffs: Vec<i64> = Vec::with_capacity(2 * params.n);
     pk_coeffs.extend(public[0].coeffs());
     pk_coeffs.extend(public[1].coeffs());
 
-    let pk_coeffs_str = pk_coeffs.iter()
-            .map(|coef| coef.to_string())
-            .collect::<Vec<String>>()
-            .join(",");
-    
-    let sk_coeffs_str = secret.coeffs().iter()
-            .map(|coef| coef.to_string())
-            .collect::<Vec<String>>()
-            .join(",");
-    
+    let pk_coeffs_str = pk_coeffs
+        .iter()
+        .map(|coef| coef.to_string())
+        .collect::<Vec<String>>()
+        .join(",");
+
+    let sk_coeffs_str = secret
+        .coeffs()
+        .iter()
+        .map(|coef| coef.to_string())
+        .collect::<Vec<String>>()
+        .join(",");
+
     let mut keys: HashMap<String, String> = HashMap::new();
     keys.insert(String::from("secret"), sk_coeffs_str);
     keys.insert(String::from("public"), pk_coeffs_str);
@@ -1137,10 +1170,10 @@ pub fn keygen_string(params: &Parameters, seed: Option<u64>) -> HashMap<String,S
 
 // ---------- RLWE Encryption ----------
 pub fn encrypt(
-    public: &[Polynomial<i64>; 2],   
-    m: &Polynomial<i64>,       
-    params: &Parameters,     
-    seed: Option<u64>      
+    public: &[Polynomial<i64>; 2],
+    m: &Polynomial<i64>,
+    params: &Parameters,
+    seed: Option<u64>,
 ) -> (Polynomial<i64>, Polynomial<i64>) {
     let (n, q, t, f) = (params.n, params.q, params.t, &params.f);
     let scaled_m = mod_coeffs(m * q / t, q);
@@ -1149,13 +1182,23 @@ pub fn encrypt(
     let e2 = gen_ternary_poly(n, seed);
     let u = gen_ternary_poly(n, seed);
 
-    let ct0 = polyadd(&polyadd(&polymul(&public[0], &u, q*q, f), &e1, q*q, f), &scaled_m, q*q, f);
-    let ct1 = polyadd(&polymul(&public[1], &u, q*q, f), &e2, q*q, f);
+    let ct0 = polyadd(
+        &polyadd(&polymul(&public[0], &u, q * q, f), &e1, q * q, f),
+        &scaled_m,
+        q * q,
+        f,
+    );
+    let ct1 = polyadd(&polymul(&public[1], &u, q * q, f), &e2, q * q, f);
 
     (ct0, ct1)
 }
 
-pub fn encrypt_string(pk_string: &String, message: &[u8], params: &Parameters, seed: Option<u64>) -> String {
+pub fn encrypt_string(
+    pk_string: &String,
+    message: &[u8],
+    params: &Parameters,
+    seed: Option<u64>,
+) -> String {
     let message_str = encode(message); // Convert u8 array to Base64 String
     let pk_arr: Vec<i64> = pk_string
         .split(',')
@@ -1172,7 +1215,9 @@ pub fn encrypt_string(pk_string: &String, message: &[u8], params: &Parameters, s
 
     let ciphertext = encrypt(&pk, &message_poly, params, seed);
 
-    let ciphertext_string = ciphertext.0.coeffs()
+    let ciphertext_string = ciphertext
+        .0
+        .coeffs()
         .iter()
         .chain(ciphertext.1.coeffs().iter())
         .map(|x| x.to_string())
@@ -1182,43 +1227,48 @@ pub fn encrypt_string(pk_string: &String, message: &[u8], params: &Parameters, s
     ciphertext_string
 }
 
-
 // ---------- AES Encrypt ----------
 pub fn encrypt_aes(plaintext: &str, key: &[u8], iv: &[u8]) -> Vec<u8> {
     let cipher = Cipher::aes_256_cbc();
-    let mut encrypter = Crypter::new(cipher, Mode::Encrypt, key, Some(iv)).expect("Failed to create encrypter");
+    let mut encrypter =
+        Crypter::new(cipher, Mode::Encrypt, key, Some(iv)).expect("Failed to create encrypter");
     encrypter.pad(true);
 
     let mut ciphertext = vec![0; plaintext.len() + cipher.block_size()];
-    let mut count = encrypter.update(plaintext.as_bytes(), &mut ciphertext).expect("Encryption failed");
-    count += encrypter.finalize(&mut ciphertext[count..]).expect("Final encryption step failed");
+    let mut count = encrypter
+        .update(plaintext.as_bytes(), &mut ciphertext)
+        .expect("Encryption failed");
+    count += encrypter
+        .finalize(&mut ciphertext[count..])
+        .expect("Final encryption step failed");
 
     ciphertext.truncate(count);
     ciphertext
 }
 
-
-
 // ---------- RLWE Decryption ----------
 pub fn decrypt(
-    secret: &Polynomial<i64>,   
-    cipher: &[Polynomial<i64>; 2],        
-    params: &Parameters
+    secret: &Polynomial<i64>,
+    cipher: &[Polynomial<i64>; 2],
+    params: &Parameters,
 ) -> Polynomial<i64> {
     let (_n, q, t, f) = (params.n, params.q, params.t, &params.f);
     let scaled_pt = polyadd(&polymul(&cipher[1], secret, q, f), &cipher[0], q, f);
-    
+
     let mut decrypted_coeffs = vec![];
     for c in scaled_pt.coeffs().iter() {
         let s = nearest_int(c * t, q);
         decrypted_coeffs.push(s.rem_euclid(t));
     }
-    
+
     Polynomial::new(decrypted_coeffs)
 }
 
-
-pub fn decrypt_string(sk_string: &String, ciphertext_string: &String, params: &Parameters) -> Vec<u8> {
+pub fn decrypt_string(
+    sk_string: &String,
+    ciphertext_string: &String,
+    params: &Parameters,
+) -> Vec<u8> {
     let sk_coeffs: Vec<i64> = sk_string
         .split(',')
         .filter_map(|x| x.parse::<i64>().ok())
@@ -1234,8 +1284,11 @@ pub fn decrypt_string(sk_string: &String, ciphertext_string: &String, params: &P
     let mut decrypted_message = String::new();
 
     for i in 0..num_bytes {
-        let c0 = Polynomial::new(ciphertext_array[2 * i * params.n..(2 * i + 1) * params.n].to_vec());
-        let c1 = Polynomial::new(ciphertext_array[(2 * i + 1) * params.n..(2 * i + 2) * params.n].to_vec());
+        let c0 =
+            Polynomial::new(ciphertext_array[2 * i * params.n..(2 * i + 1) * params.n].to_vec());
+        let c1 = Polynomial::new(
+            ciphertext_array[(2 * i + 1) * params.n..(2 * i + 2) * params.n].to_vec(),
+        );
         let ct = [c0, c1];
 
         let decrypted_poly = decrypt(&sk, &ct, &params);
@@ -1249,25 +1302,29 @@ pub fn decrypt_string(sk_string: &String, ciphertext_string: &String, params: &P
         );
     }
 
-    let decoded_bytes = decode(decrypted_message.trim_end_matches('\0')).expect("Failed to decode Base64");
+    let decoded_bytes =
+        decode(decrypted_message.trim_end_matches('\0')).expect("Failed to decode Base64");
     decoded_bytes
 }
-
 
 // ---------- AES Decryption ----------
 pub fn decrypt_aes(ciphertext: &[u8], key: &[u8], iv: &[u8]) -> String {
     let cipher = Cipher::aes_256_cbc();
-    let mut decrypter = Crypter::new(cipher, Mode::Decrypt, key, Some(iv)).expect("Failed to create decrypter");
+    let mut decrypter =
+        Crypter::new(cipher, Mode::Decrypt, key, Some(iv)).expect("Failed to create decrypter");
     decrypter.pad(true);
 
     let mut plaintext = vec![0; ciphertext.len() + cipher.block_size()];
-    let mut count = decrypter.update(ciphertext, &mut plaintext).expect("Decryption failed");
-    count += decrypter.finalize(&mut plaintext[count..]).expect("Final decryption step failed");
+    let mut count = decrypter
+        .update(ciphertext, &mut plaintext)
+        .expect("Decryption failed");
+    count += decrypter
+        .finalize(&mut plaintext[count..])
+        .expect("Final decryption step failed");
 
     plaintext.truncate(count);
     String::from_utf8(plaintext).expect("Invalid UTF-8")
 }
-
 
 // ---------- Generate IV and Key ----------
 pub fn generate_iv() -> [u8; 16] {

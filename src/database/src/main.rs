@@ -1,22 +1,22 @@
 /****************
     IMPORTS
 ****************/
-use common::{DatabaseReply, DatabaseRequest, Role, DATABASE_ADDR, Parameters, 
-    keygen_string, encrypt_string, decrypt_string, encrypt_aes, decrypt_aes, generate_iv, generate_key
+use common::{
+    decrypt_aes, decrypt_string, encrypt_aes, encrypt_string, generate_iv, generate_key,
+    keygen_string, DatabaseReply, DatabaseRequest, Parameters, Role, DATABASE_ADDR,
 };
+use lazy_static::lazy_static;
 use rusqlite::{params, Connection, Result};
+use std::fs::File;
+use std::io::Write;
 use std::sync::Arc;
+use std::sync::Mutex as StdMutex;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::sync::Mutex;
-use lazy_static::lazy_static;
-use std::sync::Mutex as StdMutex;
-use std::fs::File;
-use std::io::Write;
-
 
 /*
-* Name: Lazy Static 
+* Name: Lazy Static
 * Function: For generating and storing a server keypair, also provides static reference for AES key and IV
 */
 lazy_static! {
@@ -24,8 +24,14 @@ lazy_static! {
         let params = Parameters::default();
         let keypair = keygen_string(&params, None);
         (
-            keypair.get("public").expect("Public key not found").to_string(),
-            keypair.get("secret").expect("Private key not found").to_string()
+            keypair
+                .get("public")
+                .expect("Public key not found")
+                .to_string(),
+            keypair
+                .get("secret")
+                .expect("Private key not found")
+                .to_string(),
         )
     });
 }
@@ -36,24 +42,17 @@ lazy_static! {
     static ref IV: StdMutex<Option<String>> = StdMutex::new(None);
 }
 
-
 /*
 * Name: write_db_public_key
-* Function: Saves public key for usage 
+* Function: Saves public key for usage
 */
 fn write_db_public_key() {
     let keypair = DB_KEYPAIR.lock().unwrap();
     let public_key = &keypair.0;
-    let mut file = File::create("db_public_key.txt")
-        .expect("Unable to create public key file");
+    let mut file = File::create("db_public_key.txt").expect("Unable to create public key file");
     file.write_all(public_key.as_bytes())
         .expect("Unable to write public key");
 }
-
-
-
-
-
 
 /*
 * Name: initialize_database
@@ -82,9 +81,10 @@ fn initialize_database() -> Result<Connection> {
         "CREATE TABLE IF NOT EXISTS employees (
             id INTEGER PRIMARY KEY,
             name TEXT NOT NULL,
-            fingerprint_hash TEXT NOT NULL,
+            fingerprint_ids TEXT NOT NULL,
             role_id INTEGER NOT NULL,
             allowed_locations TEXT NOT NULL,
+            rfid_data TEXT NOT NULL,
             FOREIGN KEY (role_id) REFERENCES roles (id)
         )",
         [],
@@ -104,8 +104,6 @@ fn initialize_database() -> Result<Connection> {
         (999, 'AdminSystem', 'Admin')",
         [],
     )?;
-    
-    
 
     Ok(conn)
 }
@@ -149,6 +147,15 @@ async fn handle_port_server_request(
                 req.checkpoint_id.unwrap_or_default()
             );
 
+            println!("DEBUG: received message {}", req.command);
+            println!("DEBUG: worker id: {}", req.worker_id.unwrap_or(0));
+
+            // If employee does not exist send back an error
+            /*if !employee_exists(&conn, req.worker_id.unwrap()).unwrap_or(false) {
+                println!("Worker des not exist");
+                return DatabaseReply::error();
+            }*/
+
             // Fetch checkpoint data
             let checkpoint_data: Result<(String, String), _> = conn.query_row(
                 "SELECT location, allowed_roles FROM checkpoints WHERE id = ?1",
@@ -160,7 +167,7 @@ async fn handle_port_server_request(
                 Ok((location, allowed_roles)) => {
                     // Worker details
                     let worker_data: Result<(String, String, String, u32), _> = conn.query_row(
-                "SELECT employees.fingerprint_hash, employees.allowed_locations, employees.name, roles.id \
+                "SELECT employees.fingerprint_ids, employees.allowed_locations, employees.name, roles.id \
                  FROM employees \
                  JOIN roles ON employees.role_id = roles.id \
                  WHERE employees.id = ?1",
@@ -170,11 +177,17 @@ async fn handle_port_server_request(
 
                     match worker_data {
                         Ok((worker_fingerprint, allowed_locations, name, role_id)) => {
-                            // Return the authentication reply
+                            // Parse the fingerprint ID from the string
+                            let fingerprint_id = worker_fingerprint
+                                .split(':')
+                                .last()
+                                .and_then(|s| s.trim().trim_matches('}').trim().parse::<u32>().ok())
+                                .unwrap_or(0); // Default to 0 if parsing fails
+                                               // Return the authentication reply
                             return DatabaseReply::auth_reply(
                                 req.checkpoint_id.unwrap_or_default(),
                                 req.worker_id.unwrap_or_default(),
-                                worker_fingerprint,
+                                fingerprint_id,
                                 role_id,
                                 allowed_roles,
                                 location,
@@ -197,6 +210,13 @@ async fn handle_port_server_request(
             }
         }
         "ENROLL" => {
+            let worker_id = match req.worker_id {
+                Some(id) => id,
+                None => {
+                    println!("No RFID token ID provided");
+                    return DatabaseReply::error();
+                }
+            };
             let exists: bool = conn
                 .query_row(
                     "SELECT EXISTS(SELECT 1 FROM employees WHERE name = ?1 AND role_id = ?2)",
@@ -211,13 +231,17 @@ async fn handle_port_server_request(
             }
 
             let result = conn.execute(
-                "INSERT INTO employees (name, fingerprint_hash, role_id, allowed_locations) VALUES (?1, ?2, ?3, ?4)",
-                params![req.worker_name, req.worker_fingerprint, req.role_id, req.location],
+                "INSERT INTO employees (id, name, fingerprint_ids, role_id, allowed_locations, rfid_data) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![worker_id, req.worker_name, req.worker_fingerprint, req.role_id, req.location, req.rfid_data],
             );
             // fetch id
+            let latest_id: i64 = conn
+                .query_row("SELECT LAST_INSERT_ROWID()", [], |row| row.get(0))
+                .unwrap();
+            let worker_id = latest_id as u32;
             match result {
-                Ok(_) => {
-                    return DatabaseReply::success();
+                Ok(id) => {
+                    return DatabaseReply::success(worker_id.into());
                 }
 
                 Err(e) => {
@@ -258,7 +282,7 @@ async fn handle_port_server_request(
             match result {
                 Ok(affected) => {
                     if affected > 0 {
-                        return DatabaseReply::success();
+                        return DatabaseReply::success(0);
                     } else {
                         println!("Affected users is zero");
                         return DatabaseReply::error();
@@ -271,11 +295,15 @@ async fn handle_port_server_request(
             }
         }
         "KEY_EXCHANGE" => {
-            let port_public_key = req.public_key.as_ref().expect("Missing port server public key");
+            let port_public_key = req
+                .public_key
+                .as_ref()
+                .expect("Missing port server public key");
             let aes_key_temp = generate_key();
             let iv_temp = generate_iv();
 
-            let encrypted_aes_key = encrypt_string(port_public_key, &aes_key_temp, &rlwe_params, None);
+            let encrypted_aes_key =
+                encrypt_string(port_public_key, &aes_key_temp, &rlwe_params, None);
             let encrypted_iv = encrypt_string(port_public_key, &iv_temp, &rlwe_params, None);
 
             println!("Database generated AES Key: {:?}", aes_key_temp);
@@ -304,6 +332,16 @@ async fn handle_port_server_request(
             return DatabaseReply::error();
         }
     }
+}
+
+/*
+ * Name: employee_exists
+ * Function: Check if employee exists in the database.
+ */
+fn employee_exists(conn: &Connection, id: u64) -> Result<bool> {
+    let mut stmt = conn.prepare("SELECT 1 FROM employees WHERE id = ? LIMIT 1")?;
+    let mut rows = stmt.query(params![id])?;
+    Ok(rows.next()?.is_some())
 }
 
 /*

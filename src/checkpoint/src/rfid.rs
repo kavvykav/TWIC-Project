@@ -1,21 +1,82 @@
 use std::process::Command;
-use std::str;
 
-pub fn scan_rfid() -> Result<String, String> {
-    let output = Command::new("python3").arg("/path/to/rfid.py").output();
+pub fn write_rfid(id: u64) -> Result<bool, String> {
+    let output = Command::new("python3")
+        .arg("rfid.py")
+        .arg("1")
+        .arg(id.to_string())
+        .output()
+        .map_err(|e| e.to_string())?;
+    if output.status.success() {
+        Ok(true)
+    } else {
+        Err(format!(
+            "Error: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ))
+    }
+}
 
-    match output {
-        Ok(output) => {
-            let result = str::from_utf8(&output.stdout)
-                .unwrap_or("")
-                .trim()
-                .to_string();
-            if result == "ERROR" {
-                Err("Failed to read RFID".to_string())
-            } else {
-                Ok(result)
-            }
+pub fn read_rfid() -> Result<u32, String> {
+    let output = Command::new("python3")
+        .arg("rfid.py")
+        .arg("2")
+        .output()
+        .map_err(|e| format!("Failed to execute Python script: {}", e))?;
+
+    if output.status.success() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        println!("Raw stdout: {}", stdout); // Debug: Check what is actually received
+
+        let data_str = stdout.trim(); // ✅ Remove extra whitespace
+
+        // Ensure the data is numeric before parsing
+        if data_str.chars().all(|c| c.is_digit(10)) {
+            data_str
+                .parse::<u32>()
+                .map_err(|e| format!("Parse error: {}", e))
+        } else {
+            Err(format!(
+                "Unexpected output from Python script: '{}'",
+                data_str
+            ))
         }
-        Err(_) => Err("Failed to execute RFID script".to_string()),
+    } else {
+        Err(format!(
+            "Python script failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ))
+    }
+}
+
+pub fn get_token_id() -> Result<u64, String> {
+    let output = Command::new("python3")
+        .arg("rfid.py")
+        .arg("3")
+        .output()
+        .map_err(|e| format!("Failed to execute Python script: {}", e))?;
+
+    if output.status.success() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        println!("Raw stdout: {}", stdout); // Debug: Check what is actually received
+
+        let data_str = stdout.trim(); // ✅ Remove extra whitespace
+
+        // Ensure the data is numeric before parsing
+        if data_str.chars().all(|c| c.is_digit(10)) {
+            data_str
+                .parse::<u64>()
+                .map_err(|e| format!("Parse error: {}", e))
+        } else {
+            Err(format!(
+                "Unexpected output from Python script: '{}'",
+                data_str
+            ))
+        }
+    } else {
+        Err(format!(
+            "Python script failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ))
     }
 }

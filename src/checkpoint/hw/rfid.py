@@ -38,6 +38,20 @@ def read_rfid():
         print("Cleaning up...")
         gpio.cleanup()
 
+def get_token_id():
+    r = SimpleMFRC522()
+
+    try:
+        print("Place RFID tag near reader")
+        id, data = r.read()
+        print(f"RFID Tag ID: {id}")
+        print(f"Data for this Tag: {data}")
+    except Exception as e:
+        print(f"Error: {e}")
+    finally:
+        print("Cleaning up...")
+        gpio.cleanup()
+
 
 if __name__ == "__main__":
 
