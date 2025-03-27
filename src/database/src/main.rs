@@ -225,7 +225,7 @@ async fn handle_port_server_request(
             }
 
             let result = conn.execute(
-                "INSERT INTO employees (id, name, fingerprint_ids, role_id, allowed_locations) VALUES , (?1, ?2, ?3, ?4, ?5, ?6)",
+                "INSERT INTO employees (id, name, fingerprint_ids, role_id, allowed_locations, rfid_data) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
                 params![worker_id, req.worker_name, req.worker_fingerprint, req.role_id, req.location, req.rfid_data],
             );
             // fetch id

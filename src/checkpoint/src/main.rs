@@ -336,6 +336,17 @@ fn main() {
                             exit(1);
                         }
                     };
+                    let rfid_data: u32;
+                                    let result = match rfid::read_rfid() {
+                                        Ok(val) => {
+                                            rfid_data = val;
+                                        }
+                                        Err(e) => {
+                                            eprintln!("Error: {e}");
+                                            exit(1);
+                                        }
+                                    };  
+
 
                     // Call the TUI
                     match common::App::new().run() {
@@ -350,17 +361,7 @@ fn main() {
                                 } => {
                                     let role_id = role_id.parse::<u32>().unwrap_or(0);
 
-                                    let worker_id: u64;
-                                    let result = match rfid::get_token_id() {
-                                        Ok(val) => {
-                                            worker_id = val;
-                                        }
-                                        Err(e) => {
-                                            eprintln!("Error: {e}");
-                                            exit(1);
-                                        }
-                                    };
-                                    let fingerprint_json = format_fingerprint_json(
+                                        let fingerprint_json = format_fingerprint_json(
                                         checkpoint_id,
                                         biometric.parse::<u32>().unwrap_or(0), // Convert biometric to fingerprint ID (Does this work ok?)
                                     );
@@ -369,6 +370,7 @@ fn main() {
                                         checkpoint_id,
                                         name,
                                         worker_id,
+                                        rfid_data,
                                         serde_json::to_string(&fingerprint_json).unwrap(),
                                         location,
                                         role_id,
@@ -399,23 +401,6 @@ fn main() {
                                             {
                                                 lcd.display_string("Enrolled", LCD_LINE_1);
                                                 lcd.display_string("Successfully", LCD_LINE_2);
-                                            }
-                                            // If all goes well, give the worker an RFID tag with
-                                            // ID written on it.
-                                            let result =
-                                                rfid::write_rfid(enroll_reply_2.worker_id.unwrap());
-                                            match result {
-                                                Ok(rfid) => {
-                                                    if rfid {
-                                                        println!("Tag successfully written with Worker ID");
-                                                    } else {
-                                                        println!("Tag not written with Worker ID");
-                                                        return;
-                                                    }
-                                                }
-                                                Err(e) => {
-                                                    println!("Error with writing the RFID token");
-                                                }
                                             }
                                         } else {
                                             eprintln!("Error enrolling user: {:?}", enroll_reply_2); // Debug log

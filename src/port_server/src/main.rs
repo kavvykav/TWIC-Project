@@ -751,7 +751,7 @@ fn handle_authenticate(
     let next_state: CheckpointState;
     let response = match client.state {
         CheckpointState::WaitForRfid => {
-            if authenticate_fingerprint(&conn.lock().unwrap(), &request.worker_id, &request.worker_fingerprint, &request.checkpoint_id) {
+            if authenticate_rfid(&conn.lock().unwrap(), &request.worker_id, &request.checkpoint_id) {
                 println!(
                     "RFID Verified: {:?} matches database entry.",
                     request.worker_id.unwrap()
