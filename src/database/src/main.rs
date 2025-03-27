@@ -84,6 +84,7 @@ fn initialize_database() -> Result<Connection> {
             fingerprint_ids TEXT NOT NULL,
             role_id INTEGER NOT NULL,
             allowed_locations TEXT NOT NULL,
+            rfid_data TEXT NOT NULL,
             FOREIGN KEY (role_id) REFERENCES roles (id)
         )",
         [],
@@ -145,12 +146,15 @@ async fn handle_port_server_request(
                 "Checkpoint id is: {}",
                 req.checkpoint_id.unwrap_or_default()
             );
+            
+            println!("DEBUG: received message {}", req.command);
+            println!("DEBUG: worker id: {}", req.worker_id.unwrap_or(0));
 
             // If employee does not exist send back an error
-            if !employee_exists(&conn, req.worker_id.unwrap()).unwrap() {
+            /*if !employee_exists(&conn, req.worker_id.unwrap()).unwrap_or(false) {
                 println!("Worker des not exist");
                 return DatabaseReply::error();
-            }
+            }*/
 
             // Fetch checkpoint data
             let checkpoint_data: Result<(String, String), _> = conn.query_row(
@@ -221,8 +225,8 @@ async fn handle_port_server_request(
             }
 
             let result = conn.execute(
-                "INSERT INTO employees (id, name, fingerprint_ids, role_id, allowed_locations) VALUES (?1, ?2, ?3, ?4)",
-                params![worker_id, req.worker_name, req.worker_fingerprint, req.role_id, req.location],
+                "INSERT INTO employees (id, name, fingerprint_ids, role_id, allowed_locations) VALUES , (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![worker_id, req.worker_name, req.worker_fingerprint, req.role_id, req.location, req.rfid_data],
             );
             // fetch id
             let latest_id: i64 = conn

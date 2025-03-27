@@ -396,7 +396,7 @@ fn authenticate_fingerprint(
             command: "AUTHENTICATE".to_string(),
             checkpoint_id: Some(*checkpoint),
             worker_id: None,
-            rfid_data: Some((*rfid).try_into().unwrap()),
+            rfid_data: Some(*rfid as u32),
             worker_fingerprint: Some(fingerprint.clone()),
             location: None,
             authorized_roles: None,
@@ -751,20 +751,7 @@ fn handle_authenticate(
     let next_state: CheckpointState;
     let response = match client.state {
         CheckpointState::WaitForRfid => {
-            match query_database(DATABASE_ADDR, &request) {
-                Ok(db_response) => {
-                    let scanned_worker_id = request.worker_id.map(|id| {id as u64});
-                    let db_worker_id = db_response.worker_id;
-
-                    println!(
-                        "Checkpoint Scanned Worker ID: {:?}, Database Worker ID: {:?}",
-                        scanned_worker_id, db_worker_id
-                    );
-
-                    if scanned_worker_id.is_some()
-                        && db_worker_id.is_some()
-                        && scanned_worker_id == db_worker_id
-                    {
+                   if authenticate_fingerprint(&conn.lock.unwrap(), &request.worker_id, &request.checkpoint_id) {
                         println!(
                             "RFID Verified: {:?} matches database entry.",
                             scanned_worker_id

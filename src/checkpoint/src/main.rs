@@ -602,7 +602,6 @@ fn main() {
                             rfid_ver,
                         );
 
-                        if rfid_ver.unwrap_or(true) {
                             if let Some(CheckpointState::AuthFailed) = auth_reply.auth_response {
                                 eprintln!("RFID Authentication failed: {:?}", auth_reply); // Debug log
                                 println!("Authentication failed.");
@@ -627,9 +626,6 @@ fn main() {
                                     lcd.display_string("Validating", LCD_LINE_1);
                                 }
                             }
-                        } else {
-                            println!("RFID Data Mismatch")
-                        }
                         // Collect fingerprint data
 
                         let worker_fingerprint = match fingerprint::scan_fingerprint() {

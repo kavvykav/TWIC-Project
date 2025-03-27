@@ -1,6 +1,6 @@
 use std::process::Command;
 
-pub fn write_rfid(id: u32) -> Result<bool, String> {
+pub fn write_rfid(id: u64) -> Result<bool, String> {
     let output = Command::new("python3")
         .arg("rfid.py")
         .arg("1")

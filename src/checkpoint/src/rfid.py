@@ -34,7 +34,7 @@ def get_token_id():
     r = SimpleMFRC522()
     try:
         id, data = r.read()
-        print(id)
+        print(int(id))
     except Exception as e:
         print(f"Error: {e}")
     finally:
