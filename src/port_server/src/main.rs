@@ -16,7 +16,7 @@ use std::{
     sync::atomic::{AtomicBool, Ordering},
     sync::{Arc, Mutex},
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 use lazy_static::lazy_static;
 use serde_json::{json, Value};
@@ -597,8 +597,26 @@ fn handle_client(
 
     let mut reader = BufReader::new(stream.lock().unwrap().try_clone().unwrap());
     let mut buffer = Vec::new();
+    let mut last_state_change = Instant::now();
 
     while running.load(Ordering::SeqCst) {
+       {
+            let mut clients_lock = clients.lock().unwrap();
+            if let Some(client) = clients_lock.get_mut(&client_id) {
+                if let CheckpointState::WaitForFingerprint = client.state {
+                    if last_state_change.elapsed() > Duration::from_secs(15) {
+                        println!("Client {} timed out waiting for fingerprint", client_id);
+
+                        // Transition state back to WaitForRfid
+                        client.state = CheckpointState::WaitForRfid;
+                        last_state_change = Instant::now(); // Reset the timer
+
+                    }
+                } else {
+                    last_state_change = Instant::now(); // Reset timer if state changes
+                }
+            }
+        }
         match read_request(
             &conn,
             &mut reader,
