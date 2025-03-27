@@ -429,7 +429,8 @@ fn authenticate_fingerprint(
                     response.role_id,
                     response.allowed_locations,
                 ) {
-                    if let Err(e) = add_to_local_db(
+                    println!("DEBUG: Skipping local DB");
+                    /*if let Err(e) = add_to_local_db(
                         conn,
                         id.into(),
                         name,
@@ -438,7 +439,7 @@ fn authenticate_fingerprint(
                         locations,
                     ) {
                         eprintln!("Failed to add to local DB: {}", e);
-                    }
+                    }*/
                 }
                 log_event(Some(*rfid), Some(*checkpoint), "Fingerprint", "Successful");
                 true
@@ -800,6 +801,8 @@ fn handle_authenticate(
 
     if client.state == CheckpointState::AuthSuccessful || client.state == CheckpointState::AuthFailed {
         println!("Next state: WaitForRfid");
+        send_response(&CheckpointReply::auth_reply(client.state.clone()), stream);
+        thread::sleep(Duration::from_secs(1));
         client.state = CheckpointState::WaitForRfid;
         send_response(&CheckpointReply::auth_reply(CheckpointState::WaitForRfid), stream);
     } else {
