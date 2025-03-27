@@ -598,33 +598,45 @@ fn handle_client(
     let mut reader = BufReader::new(stream.lock().unwrap().try_clone().unwrap());
     let mut buffer = Vec::new();
     let mut last_state_change = Instant::now();
-    let mut previous_state = CheckpointState::WaitForRfid; // Track previous state
+    let mut previous_state = CheckpointState::WaitForRfid;
 
     while running.load(Ordering::SeqCst) {
-        {
-            let mut clients_lock = clients.lock().unwrap();
-            if let Some(client) = clients_lock.get_mut(&client_id) {
-                // If the state has JUST changed to WaitForFingerprint, reset the timer
-                if client.state == CheckpointState::WaitForFingerprint
-                    && previous_state != CheckpointState::WaitForFingerprint
+        // Check state and timer outside of the clients_lock scope
+        let should_timeout = {
+            let clients_lock = clients.lock().unwrap();
+            if let Some(client) = clients_lock.get(&client_id) {
+                // If state just changed to WaitForFingerprint, reset timer
+                if client.state == CheckpointState::WaitForFingerprint 
+                    && previous_state != CheckpointState::WaitForFingerprint 
                 {
                     last_state_change = Instant::now();
                 }
 
-                // Check if the client has been in WaitForFingerprint for too long
-                if client.state == CheckpointState::WaitForFingerprint
+                // Check if timeout occurred
+                client.state == CheckpointState::WaitForFingerprint 
                     && last_state_change.elapsed() > Duration::from_secs(15)
-                {
-                    println!(
-                        "Client {} timed out waiting for fingerprint, transitioning to WaitForRfid",
-                        client_id
-                    );
+            } else {
+                false
+            }
+        };
 
-                    // Transition state back to WaitForRfid
-                    client.state = CheckpointState::WaitForRfid;
-                }
+        // If timeout occurred, update state
+        if should_timeout {
+            println!(
+                "Client {} timed out waiting for fingerprint, transitioning to WaitForRfid",
+                client_id
+            );
 
-                // Update the previous state tracker
+            let mut clients_lock = clients.lock().unwrap();
+            if let Some(client) = clients_lock.get_mut(&client_id) {
+                client.state = CheckpointState::WaitForRfid;
+            }
+        }
+
+        // Update previous state
+        {
+            let clients_lock = clients.lock().unwrap();
+            if let Some(client) = clients_lock.get(&client_id) {
                 previous_state = client.state.clone();
             }
         }
