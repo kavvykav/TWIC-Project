@@ -354,114 +354,108 @@ fn authenticate_fingerprint(
     fingerprint_ids: &Option<String>,
     checkpoint_id: &Option<u32>,
 ) -> bool {
-    if let (Some(rfid), Some(fingerprint), Some(checkpoint)) =
-        (rfid_tag, fingerprint_ids, checkpoint_id)
-    {
-        let rfid_64 = u64::from(*rfid);
-        if check_local_db(conn, rfid_64).unwrap() {
-            let stored_fingerprint_json: Option<String> = conn.query_row(
-                "SELECT fingerprint_data FROM employees WHERE id = ?1",
-                params![rfid_64],
-                |row| row.get(0),
-            ).ok();
-            
-            let stored_fp_id = stored_fingerprint_json
-                .as_ref()
-                .and_then(|json| serde_json::from_str::<Value>(json).ok())
-                .and_then(|json| json.get("fingerprints")?.get(checkpoint.to_string())?.as_u64())
-                .map(|id| id as u32);
-            
-            if stored_fp_id.is_none() {
-                log_event(Some(u64::from(*rfid)), Some(u32::from(*checkpoint)), "Fingerprint", "Failed");
-                return false;
-            }
-
-            if let Some(valid_fp_id) = stored_fp_id {
-                if valid_fp_id == fingerprint.parse().unwrap_or(0) {
-                    log_event(Some(u64::from(*rfid)), Some(u32::from(*checkpoint)), "Fingerprint", "Successful");
-                    return true;
-                }
-            }
-
-            if fingerprint.parse::<u32>().unwrap_or(0) == stored_fp_id.unwrap_or(9999) {
-                log_event(Some(u64::from(*rfid)), Some(u32::from(*checkpoint)), "Fingerprint", "Successful");
-                return true;
-            } else {
-                log_event(Some(u64::from(*rfid)), Some(u32::from(*checkpoint)), "Fingerprint", "Failed");
-                return false;
-            }
+    // Early return if any required field is missing
+    let (rfid, fingerprint, checkpoint) = match (rfid_tag, fingerprint_ids, checkpoint_id) {
+        (Some(r), Some(f), Some(c)) => (r, f, c),
+        _ => {
+            log_event(
+                rfid_tag.map(|id| id.into()),
+                checkpoint_id.map(|id| id.into()),
+                "Fingerprint",
+                "Failed - Missing data"
+            );
+            return false;
         }
+    };
 
-        let request = DatabaseRequest {
-            command: "AUTHENTICATE".to_string(),
-            checkpoint_id: Some(*checkpoint),
-            worker_id: Some(*rfid),
-            rfid_data: None,
-            worker_fingerprint: Some(fingerprint.clone()),
-            location: None,
-            authorized_roles: None,
-            worker_name: None,
-            role_id: None,
-            encrypted_aes_key: None,
-            encrypted_iv: None,
-            public_key: None,
-        };
+    // Check local database first
+    if check_local_db(conn, *rfid).unwrap_or(false) {
+        let stored_fingerprint_json: Option<String> = conn.query_row(
+            "SELECT fingerprint_data FROM employees WHERE id = ?1",
+            params![rfid],
+            |row| row.get(0),
+        ).ok();
 
-        match query_database(DATABASE_ADDR, &request) {
-            Ok(response) => {
-                println!(
-                    "RFID comparison: from checkpoint: {}, from database: {:?}",
-                    rfid, response.worker_id
-                );
-                println!(
-                    "Fingerprint comparison: from checkpoint: {}, from database: {:?}",
-                    fingerprint, response.worker_fingerprint
-                );
-
-                if response.status != "success".to_string() {
-                    log_event(Some(u64::from(*rfid)), Some(u32::from(*checkpoint)), "Fingerprint", "Failed");
-                    return false;
-                }
-
-                let auth = Some(u64::from(*rfid)) == response.worker_id.map(|id| u64::from(id))
-                    && Some(fingerprint) == response.worker_fingerprint.as_ref();
-
-                if auth {
-                    match add_to_local_db(
-                        conn,
-                        response.worker_id.unwrap().into(),
-                        response.worker_name.unwrap(),
-                        response.worker_fingerprint.unwrap(),
-                        response.role_id.unwrap() as i32,
-                        response.allowed_locations.unwrap(),
-                    ) {
-                        Ok(_) => {
-                            log_event(Some(u64::from(*rfid)), Some(u32::from(*checkpoint)), "Fingerprint", "Successful");
-                            return true;
-                        }
-                        Err(e) => {
-                            eprintln!(
-                                "An error occurred with adding the user to the database : {}",
-                                e
-                            );
-                            log_event(Some(u64::from(*rfid)), Some(u32::from(*checkpoint)), "Fingerprint", "Failed");
-                            return true;
-                        }
+        if let Some(json) = stored_fingerprint_json {
+            if let Ok(parsed) = serde_json::from_str::<Value>(&json) {
+                if let Some(fp_id) = parsed["fingerprints"][checkpoint.to_string()].as_u64() {
+                    let input_fp = fingerprint.parse::<u64>().unwrap_or(0);
+                    if fp_id == input_fp {
+                        log_event(
+                            Some(*rfid),
+                            Some(*checkpoint),
+                            "Fingerprint",
+                            "Successful (Local DB)"
+                        );
+                        return true;
                     }
-                } else {
-                    log_event(Some(u64::from(*rfid)), Some(u32::from(*checkpoint)), "Fingerprint", "Failed");
-                    return false;
                 }
             }
-            Err(e) => {
-                eprintln!("Error querying database for fingerprint hash: {}", e);
-                log_event(Some(u64::from(*rfid)), Some(u32::from(*checkpoint)), "Fingerprint", "Failed");
-                return false;
+        }
+    }
+
+    // If not found locally, query central database
+    let request = DatabaseRequest {
+        command: "AUTHENTICATE".to_string(),
+        checkpoint_id: Some(*checkpoint),
+        worker_id: Some(*rfid),
+        rfid_data: None,
+        worker_fingerprint: Some(fingerprint.clone()),
+        location: None,
+        authorized_roles: None,
+        worker_name: None,
+        role_id: None,
+        encrypted_aes_key: None,
+        encrypted_iv: None,
+        public_key: None,
+    };
+
+    match query_database(DATABASE_ADDR, &request) {
+        Ok(response) if response.status == "success" => {
+            // Verify the response data
+            let auth = match (response.worker_id, response.worker_fingerprint) {
+                (Some(db_rfid), Some(db_fingerprint)) => {
+                    *rfid == db_rfid as u64 && *fingerprint == db_fingerprint.to_string()
+                }
+                _ => false,
+            };
+
+            if auth {
+                // Add to local cache if authentication succeeds
+                if let (Some(id), Some(name), Some(fp), Some(role), Some(locations)) = (
+                    response.worker_id,
+                    response.worker_name,
+                    response.worker_fingerprint,
+                    response.role_id,
+                    response.allowed_locations,
+                ) {
+                    if let Err(e) = add_to_local_db(
+                        conn,
+                        id.into(),
+                        name,
+                        fp.to_string(),
+                        role as i32,
+                        locations,
+                    ) {
+                        eprintln!("Failed to add to local DB: {}", e);
+                    }
+                }
+                log_event(Some(*rfid), Some(*checkpoint), "Fingerprint", "Successful");
+                true
+            } else {
+                log_event(Some(*rfid), Some(*checkpoint), "Fingerprint", "Failed - Mismatch");
+                false
             }
         }
-    } else {
-        log_event(rfid_tag.map(|id| id.into()), checkpoint_id.map(|id| id.into()), "Fingerprint", "Failed");
-        return false;
+        Ok(_) => {
+            log_event(Some(*rfid), Some(*checkpoint), "Fingerprint", "Failed - DB error");
+            false
+        }
+        Err(e) => {
+            eprintln!("Database query error: {}", e);
+            log_event(Some(*rfid), Some(*checkpoint), "Fingerprint", "Failed - Connection error");
+            false
+        }
     }
 }
 
