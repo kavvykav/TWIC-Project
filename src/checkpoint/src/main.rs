@@ -539,7 +539,7 @@ fn main() {
                             lcd.display_string("Please Scan", LCD_LINE_1);
                         }
 
-                        let worker_id: u64;
+                        let mut worker_id: u64;
 
                         let mut result = match rfid::get_token_id() {
                             Ok(val) => {
@@ -547,9 +547,12 @@ fn main() {
                             }
                             Err(e) => {
                                 println!("Error reading RFID: {}", e);
-                                continue;
+                                worker_id = 9999999999;
                             }
                         };
+                        lcd.clear();
+                        thread::sleep(Duration::from_secs(1));
+                        lcd.display_string("Please Scan", LCD_LINE_1);
 
                         let rfid_data: u32;
 
@@ -559,7 +562,7 @@ fn main() {
                             }
                             Err(e) => {
                                 println!("Error reading RFID: {}", e);
-                                continue;
+                                rfid_data = 999999;
                             }
                         };
 
@@ -597,7 +600,7 @@ fn main() {
                                     lcd.clear();
                                 }
                                 continue;
-                            } else {
+                            } else if let Some(CheckpointState::WaitForFingerprint) = auth_reply.auth_response {
                                 println!("RFID Authentication Succeeded: {:?}", auth_reply);
                                 println!("Please scan your fingerprint");
                                 #[cfg(feature = "raspberry_pi")]
@@ -607,19 +610,20 @@ fn main() {
                                     lcd.display_string("fingerprint", LCD_LINE_2);
                                     thread::sleep(Duration::from_secs(5));
                                 }
+                            } else {
+                                continue;
                             }
                         // Collect fingerprint data
 
-                        let worker_fingerprint = match fingerprint::scan_fingerprint() {
-                            Ok(fingerprint_id) => fingerprint_id.to_string(),
+                        let worker_fingerprint: String;
+                        match fingerprint::scan_fingerprint() {
+                            Ok(fingerprint_id) => {
+                                worker_fingerprint = fingerprint_id.to_string();
+                            },
                             Err(e) => {
-                                lcd.clear();
+                                worker_fingerprint = "null".to_string();
                                 println!("Error scanning fingerprint: {}", e);
-                                lcd.display_string("Access Denied", LCD_LINE_1);
-                                thread::sleep(Duration::from_secs(5));
-                                lcd.clear();
-                                continue;
-                            }
+                            },
                         };
                         lcd.clear();
                         lcd.display_string("Validating", LCD_LINE_1);
@@ -636,7 +640,7 @@ fn main() {
                             admin_id_1,
                             rfid_ver,
                         );
-                        if let Some(CheckpointState::WaitForRfid) =
+                        if let Some(CheckpointState::AuthFailed) =
                             fingerprint_auth_reply.auth_response
                         {
                             eprintln!(
@@ -652,7 +656,7 @@ fn main() {
                                 lcd.clear();
                             }
                             continue;
-                        } else {
+                        } else if let Some(CheckpointState::AuthSuccessful) = fingerprint_auth_reply.auth_response {
                             println!("Authentication successful");
                             #[cfg(feature = "raspberry_pi")]
                             {
