@@ -11,7 +11,7 @@ use rusqlite::{params, Connection, Result};
 use std::fs::OpenOptions;
 use std::{
     collections::HashMap,
-    io::{BufRead, BufReader, Write},
+    io::{BufRead, BufReader, Write, ErrorKind::WouldBlock},
     net::{TcpListener, TcpStream},
     sync::atomic::{AtomicBool, Ordering},
     sync::{Arc, Mutex},
@@ -675,22 +675,27 @@ fn read_request(
     clients: &Arc<Mutex<HashMap<usize, Client>>>,
     buffer: &mut Vec<u8>,
 ) -> Result<(), String> {
-    println!("Received a request");
     buffer.clear();
     match reader.read_until(b'\0', buffer) {
         Ok(0) => Err("Client disconnected".into()),
-        Ok(_) => {
-            buffer.pop();
-            let request_str = parse_request(buffer)?;
-            let request: DatabaseRequest = serde_json::from_str(&request_str)
-                .map_err(|e| format!("Failed to parse request: {}", e))?;
-            parse_command_from_request(conn, request, stream, client_id, clients)?;
+        Ok(n) => {
+            // Only process if we actually got data
+            if n > 0 {
+                buffer.pop(); // Remove null terminator
+                let request_str = parse_request(buffer)?;
+                let request: DatabaseRequest = serde_json::from_str(&request_str)
+                    .map_err(|e| format!("Failed to parse request: {}", e))?;
+                parse_command_from_request(conn, request, stream, client_id, clients)?;
+            }
             Ok(())
+        }
+        Err(e) if e.kind() == WouldBlock => {
+            // No data available - this is expected in non-blocking mode
+            Err("WouldBlock".into())
         }
         Err(e) => Err(format!("Error reading from client: {}", e)),
     }
 }
-
 fn parse_request(buffer: &[u8]) -> Result<String, String> {
     String::from_utf8(buffer.to_vec())
         .map(|s| s.trim_end_matches('\0').trim().to_string())
