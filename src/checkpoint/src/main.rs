@@ -602,7 +602,7 @@ fn main() {
                             Ok(fingerprint_id) => worker_fingerprint = fingerprint_id.to_string(),
                             Err(e) => {
                                 println!("Error scanning fingerprint: {}", e);
-                                worker_fingerprint = "error".to_string();
+                                worker_fingerprint = 961.to_string();
                             }
                         };
 

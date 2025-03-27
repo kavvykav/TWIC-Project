@@ -848,9 +848,9 @@ fn handle_authenticate(
     if client.state == CheckpointState::AuthSuccessful || client.state == CheckpointState::AuthFailed {
         println!("Next state: WaitForRfid");
         send_response(&CheckpointReply::auth_reply(client.state.clone()), stream);
-        thread::sleep(Duration::from_secs(1));
+        thread::sleep(Duration::from_secs(5));
         client.state = CheckpointState::WaitForRfid;
-        send_response(&CheckpointReply::auth_reply(CheckpointState::WaitForRfid), stream);
+        //send_response(&CheckpointReply::auth_reply(CheckpointState::WaitForRfid), stream);
     } else {
         send_response(&response, stream);
     }
