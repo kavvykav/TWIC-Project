@@ -228,3 +228,61 @@
 
 [2025-03-27 01:58:55] Worker ID: Some(665119524598), Checkpoint ID: Some(1031), Method: Fingerprint, Status: Failed
 
+[2025-03-27 04:08:51] Worker ID: Some(665119524598), Checkpoint ID: Some(1013), Method: RFID, Status: Successful
+
+[2025-03-27 04:09:00] Worker ID: Some(665119524598), Checkpoint ID: Some(1013), Method: Fingerprint, Status: Failed
+
+[2025-03-27 04:11:48] Worker ID: Some(665119524598), Checkpoint ID: Some(1014), Method: RFID, Status: Successful
+
+[2025-03-27 04:12:15] Worker ID: Some(665119524598), Checkpoint ID: Some(1014), Method: Fingerprint, Status: Failed
+
+[2025-03-27 04:12:22] Worker ID: Some(665119524598), Checkpoint ID: Some(1014), Method: RFID, Status: Successful
+
+[2025-03-27 04:12:52] Worker ID: Some(665119524598), Checkpoint ID: Some(1014), Method: Fingerprint, Status: Failed
+
+[2025-03-27 04:12:58] Worker ID: Some(665119524598), Checkpoint ID: Some(1014), Method: RFID, Status: Successful
+
+[2025-03-27 04:13:12] Worker ID: Some(665119524598), Checkpoint ID: Some(1014), Method: Fingerprint, Status: Failed
+
+[2025-03-27 04:13:27] Worker ID: Some(665119524598), Checkpoint ID: Some(1014), Method: RFID, Status: Successful
+
+[2025-03-27 04:13:34] Worker ID: Some(665119524598), Checkpoint ID: Some(1014), Method: Fingerprint, Status: Failed
+
+[2025-03-27 04:13:50] Worker ID: Some(665119524598), Checkpoint ID: Some(1014), Method: RFID, Status: Successful
+
+[2025-03-27 04:13:56] Worker ID: Some(665119524598), Checkpoint ID: Some(1014), Method: Fingerprint, Status: Failed
+
+[2025-03-27 04:14:27] Worker ID: Some(665119524598), Checkpoint ID: Some(1014), Method: RFID, Status: Successful
+
+[2025-03-27 04:14:43] Worker ID: Some(665119524598), Checkpoint ID: Some(1014), Method: Fingerprint, Status: Failed
+
+[2025-03-27 04:14:50] Worker ID: Some(665119524598), Checkpoint ID: Some(1014), Method: RFID, Status: Successful
+
+[2025-03-27 04:15:11] Worker ID: Some(665119524598), Checkpoint ID: Some(1014), Method: Fingerprint, Status: Failed
+
+[2025-03-27 04:15:17] Worker ID: Some(665119524598), Checkpoint ID: Some(1014), Method: RFID, Status: Successful
+
+[2025-03-27 04:15:44] Worker ID: Some(665119524598), Checkpoint ID: Some(1014), Method: Fingerprint, Status: Failed
+
+[2025-03-27 04:18:47] Worker ID: Some(665119524598), Checkpoint ID: Some(1015), Method: RFID, Status: Successful
+
+[2025-03-27 04:18:54] Worker ID: Some(665119524598), Checkpoint ID: Some(1015), Method: Fingerprint, Status: Failed
+
+[2025-03-27 04:19:09] Worker ID: Some(665119524598), Checkpoint ID: Some(1015), Method: RFID, Status: Successful
+
+[2025-03-27 04:19:16] Worker ID: Some(665119524598), Checkpoint ID: Some(1015), Method: Fingerprint, Status: Failed
+
+[2025-03-27 04:19:31] Worker ID: Some(665119524598), Checkpoint ID: Some(1015), Method: RFID, Status: Successful
+
+[2025-03-27 04:19:38] Worker ID: Some(665119524598), Checkpoint ID: Some(1015), Method: Fingerprint, Status: Failed
+
+[2025-03-27 04:20:09] Worker ID: Some(665119524598), Checkpoint ID: Some(1016), Method: RFID, Status: Failed
+
+[2025-03-27 04:20:16] Worker ID: Some(665119524598), Checkpoint ID: Some(1016), Method: RFID, Status: Failed
+
+[2025-03-27 04:23:13] Worker ID: Some(665119524598), Checkpoint ID: Some(1017), Method: RFID, Status: Failed
+
+[2025-03-27 04:23:38] Worker ID: Some(665119524598), Checkpoint ID: Some(1018), Method: RFID, Status: Successful
+
+[2025-03-27 04:23:45] Worker ID: Some(665119524598), Checkpoint ID: Some(1018), Method: Fingerprint, Status: Failed
+

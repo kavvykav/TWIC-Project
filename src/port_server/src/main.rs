@@ -395,8 +395,8 @@ fn authenticate_fingerprint(
         let request = DatabaseRequest {
             command: "AUTHENTICATE".to_string(),
             checkpoint_id: Some(*checkpoint),
-            worker_id: None,
-            rfid_data: Some(*rfid as u32),
+            worker_id: Some(*rfid),
+            rfid_data: None,
             worker_fingerprint: Some(fingerprint.clone()),
             location: None,
             authorized_roles: None,

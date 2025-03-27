@@ -537,8 +537,6 @@ fn main() {
                         #[cfg(feature = "raspberry_pi")]
                         {
                             lcd.display_string("Please Scan", LCD_LINE_1);
-                            thread::sleep(Duration::from_secs(2));
-                            lcd.clear();
                         }
 
                         let worker_id: u64;
@@ -569,6 +567,7 @@ fn main() {
                         println!("Validating card...");
                         #[cfg(feature = "raspberry_pi")]
                         {
+                            lcd.clear();
                             lcd.display_string("Validating", LCD_LINE_1);
                         }
 
@@ -587,7 +586,7 @@ fn main() {
                             rfid_ver,
                         );
 
-                            if let Some(CheckpointState::AuthFailed) = auth_reply.auth_response {
+                            if let Some(CheckpointState::WaitForRfid) = auth_reply.auth_response {
                                 eprintln!("RFID Authentication failed: {:?}", auth_reply); // Debug log
                                 println!("Authentication failed.");
                                 #[cfg(feature = "raspberry_pi")]
@@ -607,8 +606,6 @@ fn main() {
                                     lcd.display_string("Please scan", LCD_LINE_1);
                                     lcd.display_string("fingerprint", LCD_LINE_2);
                                     thread::sleep(Duration::from_secs(5));
-                                    lcd.clear();
-                                    lcd.display_string("Validating", LCD_LINE_1);
                                 }
                             }
                         // Collect fingerprint data
@@ -620,6 +617,9 @@ fn main() {
                                 continue;
                             }
                         };
+                        lcd.clear();
+                        lcd.display_string("Validating", LCD_LINE_1);
+                        println!("Fingerprint Worker ID: {}", worker_id);
                         let fingerprint_auth_request = CheckpointRequest::fingerprint_auth_req(
                             checkpoint_id,
                             worker_id,
@@ -632,7 +632,7 @@ fn main() {
                             admin_id_1,
                             rfid_ver,
                         );
-                        if let Some(CheckpointState::AuthFailed) =
+                        if let Some(CheckpointState::WaitForRfid) =
                             fingerprint_auth_reply.auth_response
                         {
                             eprintln!(
