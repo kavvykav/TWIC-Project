@@ -742,3 +742,11 @@
 
 [2025-04-02 23:52:37] Worker ID: Some(665119524598), Checkpoint ID: Some(1006), Method: RFID, Status: Failed
 
+[2025-04-03 00:12:21] Worker ID: Some(665119524598), Checkpoint ID: Some(1007), Method: RFID, Status: Successful
+
+[2025-04-03 00:12:25] Worker ID: Some(665119524598), Checkpoint ID: Some(1007), Method: Fingerprint, Status: Successful
+
+[2025-04-03 00:12:33] Worker ID: Some(665119524598), Checkpoint ID: Some(1007), Method: RFID, Status: Successful
+
+[2025-04-03 00:12:57] Worker ID: Some(665119524598), Checkpoint ID: Some(1007), Method: RFID, Status: Successful
+

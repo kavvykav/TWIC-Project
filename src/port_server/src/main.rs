@@ -779,8 +779,8 @@ fn handle_init_request(
     println!("Received INIT request from checkpoint");
     
     // Get required fields from request
-    let location = request.location.ok_or("Location is missing in request")?;
-    let allowed_roles = request.authorized_roles.ok_or("Allowed roles are missing in request")?;
+    let location = request.location.clone().ok_or("Location is missing in request")?;
+    let allowed_roles = request.authorized_roles.clone().ok_or("Allowed roles are missing in request")?;
     
     let conn = conn.lock().unwrap();
     
