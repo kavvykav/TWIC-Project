@@ -765,42 +765,70 @@ fn parse_command_from_request(
 
 /*
  * Name: handle_init_request
- * Function: Handler for a checkpoint init_request.
+ * Function: Handles checkpoint initialization requests by:
+ * 1. Checking if the checkpoint already exists in local database
+ * 2. If not, adding it with location and allowed roles
+ * 3. Querying central database for checkpoint ID
+ * 4. Returning the checkpoint ID to the requesting checkpoint
  */
 fn handle_init_request(
     conn: &Arc<Mutex<Connection>>,
     request: DatabaseRequest,
     stream: &Arc<Mutex<TcpStream>>,
 ) -> Result<(), String> {
-    println!("Received INIT request");
-    conn.lock()
-        .unwrap()
-        .execute(
+    println!("Received INIT request from checkpoint");
+    
+    // Get required fields from request
+    let location = request.location.ok_or("Location is missing in request")?;
+    let allowed_roles = request.authorized_roles.ok_or("Allowed roles are missing in request")?;
+    
+    let conn = conn.lock().unwrap();
+    
+    // First check if checkpoint already exists in local DB
+    let exists: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM checkpoints WHERE location = ?)",
+        params![location],
+        |row| row.get(0),
+    ).map_err(|e| format!("Failed to check checkpoint existence: {}", e))?;
+    
+    if exists {
+        println!("Checkpoint '{}' already exists in local database", location);
+    } else {
+        // Insert new checkpoint
+        conn.execute(
             "INSERT INTO checkpoints (location, allowed_roles) VALUES (?1, ?2)",
-            params![request.location, request.authorized_roles],
-        )
-        .map_err(|e| format!("Failed to insert checkpoint: {}", e))?;
-
+            params![location, allowed_roles],
+        ).map_err(|e| format!("Failed to insert checkpoint: {}", e))?;
+        
+        println!("Added new checkpoint '{}' to local database", location);
+    }
+    
+    // Query central database to get/set checkpoint ID
     let reply = query_database(DATABASE_ADDR, &request)
         .map(|db_reply| {
             if db_reply.status == "success" {
-                println!("Got checkpoint ID: {}", db_reply.checkpoint_id.unwrap());
-                DatabaseReply::init_reply(db_reply.checkpoint_id.unwrap())
+                let checkpoint_id = db_reply.checkpoint_id.unwrap();
+                println!("Received checkpoint ID {} from central database", checkpoint_id);
+                
+                // Update local DB with the ID if it was assigned by central DB
+                if let Err(e) = conn.execute(
+                    "UPDATE checkpoints SET id = ?1 WHERE location = ?2",
+                    params![checkpoint_id, location],
+                ) {
+                    eprintln!("Warning: Failed to update checkpoint ID in local DB: {}", e);
+                }
+                
+                DatabaseReply::init_reply(checkpoint_id)
             } else {
-                println!("Database returned an error");
+                println!("Central database returned an error for INIT request");
                 DatabaseReply::error()
             }
         })
         .map_err(|e| format!("Database query failed: {}", e))?;
-    match send_response(&reply, stream) {
-        Ok(_) => Ok(()),
-        Err(e) => {
-            eprintln!("Error with sending back to Checkpoint: {}", e);
-            Err(e)
-        }
-    }
+    
+    // Send response back to checkpoint
+    send_response(&reply, stream)
 }
-
 /*
  * Name: handle_authenticate
  * Function: Server logic for an authentication request modelled by a state machine.
