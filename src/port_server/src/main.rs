@@ -119,6 +119,7 @@ fn add_to_local_db(
     fingerprint_json: String,
     role_id: i32,
     allowed_locations: String,
+    rfid_data: u32,
 ) -> Result<(), rusqlite::Error> {
     fn add_to_local_db_inner(
         conn: &Connection,
@@ -127,9 +128,10 @@ fn add_to_local_db(
         new_fingerprint_json: Value,
         role_id: i32,
         allowed_locations: String,
+        rfid_data: u32,
     ) -> Result<(), rusqlite::Error> {
         let existing_json: Option<String> = conn.query_row(
-            "SELECT fingerprint_data FROM employees WHERE id = ?1",
+            "SELECT fingerprint_ids FROM employees WHERE id = ?1",
             params![id],
             |row| row.get(0),
         ).ok();
@@ -137,20 +139,13 @@ fn add_to_local_db(
         let mut fingerprint_data: Value = existing_json
             .as_ref()
             .and_then(|json| serde_json::from_str(json).ok())
-            .unwrap_or_else(|| json!({ "fingerprints": {} }));
+            .unwrap_or_else(|| json!({ "fingerprints": {} })); 
 
-        if let Some(fingerprints) = fingerprint_data.get_mut("fingerprints") {
-            if let Some(map) = fingerprints.as_object_mut() {
-                for (checkpoint, fp_id) in new_fingerprint_json["fingerprints"].as_object().unwrap() {
-                    map.insert(checkpoint.clone(), fp_id.clone());
-                }
-            }
-        }
 
         conn.execute(
-            "INSERT OR REPLACE INTO employees (id, name, fingerprint_data, role_id, allowed_locations) 
-             VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![id, name, serde_json::to_string(&fingerprint_data).unwrap(), role_id, allowed_locations],  
+            "INSERT OR REPLACE INTO employees (id, name, fingerprint_ids, role_id, allowed_locations, rfid_data) 
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![id, name, serde_json::to_string(&fingerprint_data).unwrap(), role_id, allowed_locations, rfid_data],  
         )?;
 
         Ok(())
@@ -159,7 +154,7 @@ fn add_to_local_db(
     let fingerprint_value: Value = serde_json::from_str(&fingerprint_json)
         .map_err(|_e| rusqlite::Error::InvalidQuery)?;
     
-    add_to_local_db_inner(conn, id, name, fingerprint_value, role_id, allowed_locations)
+    add_to_local_db_inner(conn, id, name, fingerprint_value, role_id, allowed_locations, rfid_data)
 }
 
 /*
@@ -244,7 +239,8 @@ fn authenticate_rfid(
                  WHERE id = ?",
             ) {
                 Ok(stmt) => stmt,
-                Err(_) => {
+                Err(e) => {
+                    eprintln!("Query failed: {}", e);
                     log_event(rfid_tag.map(|id| id.into()), checkpoint_id.map(|id| id.into()), "RFID", "Failed");
                     return false;
                 }
@@ -252,7 +248,8 @@ fn authenticate_rfid(
 
             let allowed_roles: String = match stmt.query_row([checkpoint], |row| row.get(0)) {
                 Ok(roles) => roles,
-                Err(_) => {
+                Err(e) => {
+                    eprintln!("Role query failed: {}", e);
                     log_event(rfid_tag.map(|id| id.into()), checkpoint_id.map(|id| id.into()), "RFID", "Failed");
                     return false;
                 }
@@ -264,6 +261,7 @@ fn authenticate_rfid(
                 .collect();
 
             if !allowed_roles_vec.contains(&role_name) {
+                println!("User does not have the required role");
                 log_event(rfid_tag.map(|id| id.into()), checkpoint_id.map(|id| id.into()), "RFID", "Failed");
                 return false;
             } else {
@@ -379,27 +377,33 @@ fn authenticate_fingerprint(
 
     // Check local database first
     if check_local_db(conn, *rfid).unwrap_or(false) {
-        let stored_fingerprint_json: Option<String> = conn.query_row(
-            "SELECT fingerprint_data FROM employees WHERE id = ?1",
-            params![rfid],
-            |row| row.get(0),
-        ).ok();
-
-        if let Some(json) = stored_fingerprint_json {
-            if let Ok(parsed) = serde_json::from_str::<Value>(&json) {
-                if let Some(fp_id) = parsed["fingerprints"][checkpoint.to_string()].as_u64() {
-                    let input_fp = fingerprint.parse::<u64>().unwrap_or(0);
-                    if fp_id == input_fp {
-                        log_event(
-                            Some(*rfid),
-                            Some(*checkpoint),
-                            "Fingerprint",
-                            "Successful (Local DB)"
-                        );
-                        return true;
-                    }
-                }
+        println!("Found worker in local database");
+        let mut stmt = match conn.prepare(
+            "SELECT fingerprint_ids
+             FROM employees
+             WHERE employees.id = ?",
+        ) {
+            Ok(stmt) => stmt,
+            Err(_) => {
+                log_event(Some(*rfid), Some(*checkpoint), "Fingerprint", "Failed");
+                return false;
             }
+        };
+
+        let fp_id: u32 = match stmt.query_row([rfid], |row| row.get(0)) {
+            Ok(fp_id) => fp_id,
+            Err(_) => {
+                return false;
+            }
+        };
+        let auth_successful = fp_id.to_string() == *fingerprint;
+        println!("Comparing {} to {:?}", fp_id.to_string(), *fingerprint);
+        if auth_successful {
+            log_event(Some(*rfid), Some(*checkpoint), "Fingerprint", "Success");
+            return true;
+        } else {
+            log_event(Some(*rfid), Some(*checkpoint), "Fingerprint", "Failed");
+            return false;
         }
     }
 
@@ -431,14 +435,14 @@ fn authenticate_fingerprint(
 
             if auth {
                 // Add to local cache if authentication succeeds
-                if let (Some(id), Some(name), Some(fp), Some(role), Some(locations)) = (
+                if let (Some(id), Some(name), Some(fp), Some(role), Some(locations), Some(rfid_data)) = (
                     response.worker_id,
                     response.worker_name,
                     response.worker_fingerprint,
                     response.role_id,
                     response.allowed_locations,
+                    response.rfid_data,
                 ) {
-                    println!("DEBUG: Skipping local DB");
                     if let Err(e) = add_to_local_db(
                         conn,
                         id,
@@ -446,6 +450,7 @@ fn authenticate_fingerprint(
                         fp.to_string(),
                         role as i32,
                         locations,
+                        rfid_data,
                     ) {
                         eprintln!("Failed to add to local DB: {}", e);
                     }
