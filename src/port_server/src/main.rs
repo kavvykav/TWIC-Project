@@ -70,7 +70,7 @@ fn initialize_database() -> Result<Connection> {
         "CREATE TABLE IF NOT EXISTS employees (
             id INTEGER PRIMARY KEY,
             name TEXT NOT NULL,
-            fingerprint_ids TEXT NOT NULL,
+            fingerprint_ids INTEGER NOT NULL,
             role_id INTEGER NOT NULL,
             allowed_locations TEXT NOT NULL,
             rfid_data TEXT NOT NULL,
@@ -384,7 +384,8 @@ fn authenticate_fingerprint(
              WHERE employees.id = ?",
         ) {
             Ok(stmt) => stmt,
-            Err(_) => {
+            Err(e) => {
+                eprintln!("STMT failed: {}", e);
                 log_event(Some(*rfid), Some(*checkpoint), "Fingerprint", "Failed");
                 return false;
             }
@@ -392,7 +393,8 @@ fn authenticate_fingerprint(
 
         let fp_id: u32 = match stmt.query_row([rfid], |row| row.get(0)) {
             Ok(fp_id) => fp_id,
-            Err(_) => {
+            Err(e) => {
+                eprintln!("Query failed: {}", e);
                 return false;
             }
         };
