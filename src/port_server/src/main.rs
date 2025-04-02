@@ -377,34 +377,51 @@ fn authenticate_fingerprint(
 
     // Check local database first
     if check_local_db(conn, *rfid).unwrap_or(false) {
-        println!("Found worker in local database");
+        println!("Found worker {} in local database", rfid);
+
+        // 1. First get the entire fingerprint JSON data
         let mut stmt = match conn.prepare(
-            "SELECT fingerprint_ids
-             FROM employees
-             WHERE employees.id = ?",
+            "SELECT fingerprint_ids FROM employees WHERE id = ?"
         ) {
             Ok(stmt) => stmt,
             Err(e) => {
-                eprintln!("STMT failed: {}", e);
-                log_event(Some(*rfid), Some(*checkpoint), "Fingerprint", "Failed");
+                eprintln!("Failed to prepare fingerprint query: {}", e);
+                log_event(Some(*rfid), Some(*checkpoint), "Fingerprint", "DB Query Error");
                 return false;
             }
         };
 
-        let fp_id: u32 = match stmt.query_row([rfid], |row| row.get(0)) {
-            Ok(fp_id) => fp_id,
+        // 2. Get the JSON string from database
+        let fingerprint_json: String = match stmt.query_row([rfid], |row| row.get(0)) {
+            Ok(json) => json,
             Err(e) => {
-                eprintln!("Query failed: {}", e);
+                eprintln!("Failed to get fingerprint data: {}", e);
+                log_event(Some(*rfid), Some(*checkpoint), "Fingerprint", "No Fingerprint Data");
                 return false;
             }
         };
-        let auth_successful = fp_id.to_string() == *fingerprint;
-        println!("Comparing {} to {:?}", fp_id.to_string(), *fingerprint);
+
+        // 3. Parse the JSON
+        let fingerprints: HashMap<String, String> = match serde_json::from_str(&fingerprint_json) {
+            Ok(data) => data,
+            Err(e) => {
+                eprintln!("Failed to parse fingerprint JSON: {}", e);
+                log_event(Some(*rfid), Some(*checkpoint), "Fingerprint", "Invalid Fingerprint Data");
+                return false;
+            }
+        };
+
+        // 4. Check if provided fingerprint matches any stored fingerprint
+        let auth_successful = fingerprints.values()
+            .any(|stored_fp| stored_fp == fingerprint);
+
         if auth_successful {
+            println!("Fingerprint MATCH for worker {}", rfid);
             log_event(Some(*rfid), Some(*checkpoint), "Fingerprint", "Success");
             return true;
         } else {
-            log_event(Some(*rfid), Some(*checkpoint), "Fingerprint", "Failed");
+            println!("Fingerprint NO MATCH for worker {}", rfid);
+            log_event(Some(*rfid), Some(*checkpoint), "Fingerprint", "Failed - No Match");
             return false;
         }
     }
