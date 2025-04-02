@@ -5,7 +5,7 @@ use chrono::Local;
 use common::{
     CheckpointReply, CheckpointState, Client, DatabaseReply, DatabaseRequest, Role, DATABASE_ADDR,
     SERVER_ADDR,Parameters, keygen_string, 
-    encrypt_string, decrypt_string, encrypt_aes, decrypt_aes, generate_iv, generate_key
+    decrypt_string, encrypt_aes
 };
 use rusqlite::{params, Connection, Result};
 use std::fs::OpenOptions;
@@ -49,7 +49,7 @@ lazy_static! {
  */
 fn initialize_database() -> Result<Connection> {
     let conn = Connection::open("port_server_db.db")?;
-    // TODO: Table containing employee IDs and their fingerprint IDs for each checkpoint
+
 
     conn.execute(
         "CREATE TABLE IF NOT EXISTS roles (
@@ -70,9 +70,10 @@ fn initialize_database() -> Result<Connection> {
         "CREATE TABLE IF NOT EXISTS employees (
             id INTEGER PRIMARY KEY,
             name TEXT NOT NULL,
-            fingerprint_data JSON NOT NULL,
+            fingerprint_ids TEXT NOT NULL,
             role_id INTEGER NOT NULL,
             allowed_locations TEXT NOT NULL,
+            rfid_data TEXT NOT NULL,
             FOREIGN KEY (role_id) REFERENCES roles (id)
         )",
         [],
@@ -86,7 +87,15 @@ fn initialize_database() -> Result<Connection> {
         )",
         [],
     )?;
+
+    conn.execute(
+        "INSERT OR IGNORE INTO checkpoints (id, location, allowed_roles) VALUES 
+        (999, 'AdminSystem', 'Admin')",
+        [],
+    )?;
+
     Ok(conn)
+
 }
 
 /*
@@ -148,7 +157,7 @@ fn add_to_local_db(
     }
 
     let fingerprint_value: Value = serde_json::from_str(&fingerprint_json)
-        .map_err(|e| rusqlite::Error::InvalidQuery)?;
+        .map_err(|_e| rusqlite::Error::InvalidQuery)?;
     
     add_to_local_db_inner(conn, id, name, fingerprint_value, role_id, allowed_locations)
 }
@@ -415,7 +424,7 @@ fn authenticate_fingerprint(
             // Verify the response data
             let auth = match (response.worker_id, response.worker_fingerprint) {
                 (Some(db_rfid), Some(db_fingerprint)) => {
-                    *rfid == db_rfid as u64 && *fingerprint == db_fingerprint.to_string()
+                    *rfid == db_rfid && *fingerprint == db_fingerprint.to_string()
                 }
                 _ => false,
             };
@@ -430,16 +439,16 @@ fn authenticate_fingerprint(
                     response.allowed_locations,
                 ) {
                     println!("DEBUG: Skipping local DB");
-                    /*if let Err(e) = add_to_local_db(
+                    if let Err(e) = add_to_local_db(
                         conn,
-                        id.into(),
+                        id,
                         name,
                         fp.to_string(),
                         role as i32,
                         locations,
                     ) {
                         eprintln!("Failed to add to local DB: {}", e);
-                    }*/
+                    }
                 }
                 log_event(Some(*rfid), Some(*checkpoint), "Fingerprint", "Successful");
                 true
@@ -735,7 +744,15 @@ fn parse_command_from_request(
             } else {
                 DatabaseReply::error()
             };
-            send_response(&reply, stream)
+            match send_response(&reply, stream) {
+                Ok(_) => {
+                    Ok(())
+                }
+                Err(e) => {
+                    eprintln!("Error with sending back to checkpoint: {}", e);
+                    Err(e)
+                }
+            }
         }
         _ => Err("Unknown command".into()),
     }
@@ -770,7 +787,13 @@ fn handle_init_request(
             }
         })
         .map_err(|e| format!("Database query failed: {}", e))?;
-    send_response(&reply, stream)
+    match send_response(&reply, stream) {
+        Ok(_) => Ok(()),
+        Err(e) => {
+            eprintln!("Error with sending back to Checkpoint: {}", e);
+            Err(e)
+        }
+    }
 }
 
 /*
@@ -847,12 +870,25 @@ fn handle_authenticate(
 
     if client.state == CheckpointState::AuthSuccessful || client.state == CheckpointState::AuthFailed {
         println!("Next state: WaitForRfid");
-        send_response(&CheckpointReply::auth_reply(client.state.clone()), stream);
+
+        send_response(&CheckpointReply::auth_reply(client.state.clone()), stream)
+        .map_err(|e| {
+            eprintln!("Failed to send response back to checkpoint: {}", e);
+            e
+        })?;
         thread::sleep(Duration::from_secs(1));
         client.state = CheckpointState::WaitForRfid;
-        send_response(&CheckpointReply::auth_reply(CheckpointState::WaitForRfid), stream);
+        send_response(&CheckpointReply::auth_reply(CheckpointState::WaitForRfid), stream)
+        .map_err(|e| {
+            eprintln!("Failed to send response back to checkpoint: {}", e);
+            e
+        })?;
     } else {
-        send_response(&response, stream);
+        send_response(&response, stream)
+        .map_err(|e| {
+            eprintln!("Failed to send response back to checkpoint: {}", e);
+            e
+        })?;
     }
 
     Ok(())
@@ -875,13 +911,12 @@ fn handle_database_request(
             "DELETE" => {
                 let worker_id = request
                     .worker_id
-                    .map(|id| id.into())
                     .ok_or("Worker ID is missing in the request")?;
 
                 if check_local_db(conn, worker_id).map_err(|e| format!("Database error: {}", e))? {
                     match delete_from_local_db(conn, worker_id) {
                         Ok(_) => {
-                            DatabaseReply::init_reply(request.checkpoint_id.unwrap_or_default().into())
+                            DatabaseReply::init_reply(request.checkpoint_id.unwrap_or_default())
                         }
                         Err(e) => {
                             eprintln!("Failed to delete worker: {}", e);
@@ -899,7 +934,6 @@ fn handle_database_request(
             "UPDATE" => {
                 let worker_id = request
                     .worker_id
-                    .map(|id| id.into())
                     .ok_or("Worker ID is missing in the request")?;
                 request.role_id.ok_or("Role ID is missing in the request")?;
                 request
@@ -914,7 +948,7 @@ fn handle_database_request(
                         db_reply.role_id.unwrap() as i32,
                     ) {
                         Ok(_) => {
-                            DatabaseReply::init_reply(request.checkpoint_id.unwrap_or_default().into())
+                            DatabaseReply::init_reply(request.checkpoint_id.unwrap_or_default())
                         }
                         Err(e) => {
                             eprintln!("Failed to update worker entry: {}", e);
@@ -929,7 +963,7 @@ fn handle_database_request(
                     DatabaseReply::error()
                 }
             }
-            _ => DatabaseReply::init_reply(request.checkpoint_id.unwrap_or_default().into()),
+            _ => DatabaseReply::init_reply(request.checkpoint_id.unwrap_or_default()),
         }
     } else {
         DatabaseReply::error()
@@ -1016,7 +1050,6 @@ fn main() -> Result<(), rusqlite::Error> {
 
     let clients: Arc<Mutex<HashMap<usize, Client>>> = Arc::new(Mutex::new(HashMap::new()));
     let running = Arc::new(AtomicBool::new(true));
-    let running_clone = Arc::clone(&running);
 
     let database = initialize_database()?;
     let database = Arc::new(Mutex::new(database));
