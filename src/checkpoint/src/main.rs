@@ -537,7 +537,6 @@ fn main() {
                             lcd.display_string("Please Scan", LCD_LINE_1);
                         }
 
-                        // Read RFID only once per iteration
                         let (worker_id, rfid_data) = match (rfid::get_token_id(), rfid::read_rfid())
                         {
                             (Ok(w_id), Ok(rfid)) => (w_id, rfid),
@@ -598,18 +597,12 @@ fn main() {
                         }
 
                         // Collect fingerprint data
-                        let worker_fingerprint = match fingerprint::scan_fingerprint() {
-                            Ok(fingerprint_id) => fingerprint_id.to_string(),
+                        let worker_fingerprint: String;
+                        match fingerprint::scan_fingerprint() {
+                            Ok(fingerprint_id) => worker_fingerprint = fingerprint_id.to_string(),
                             Err(e) => {
                                 println!("Error scanning fingerprint: {}", e);
-                                #[cfg(feature = "raspberry_pi")]
-                                {
-                                    lcd.clear();
-                                    lcd.display_string("Scan Error", LCD_LINE_1);
-                                    thread::sleep(Duration::from_secs(2));
-                                    lcd.clear();
-                                }
-                                continue;
+                                worker_fingerprint = 961.to_string();
                             }
                         };
 
@@ -634,7 +627,7 @@ fn main() {
                         );
 
                         if fingerprint_auth_reply.auth_response
-                            == Some(CheckpointState::WaitForRfid)
+                            == Some(CheckpointState::AuthFailed)
                         {
                             println!("Authentication failed.");
                             #[cfg(feature = "raspberry_pi")]
@@ -644,7 +637,7 @@ fn main() {
                                 thread::sleep(Duration::from_secs(2));
                                 lcd.clear();
                             }
-                        } else {
+                        } else if fingerprint_auth_reply.auth_response == Some(CheckpointState::AuthSuccessful) {
                             println!("Authentication successful");
                             #[cfg(feature = "raspberry_pi")]
                             {

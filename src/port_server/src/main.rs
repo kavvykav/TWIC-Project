@@ -876,13 +876,8 @@ fn handle_authenticate(
             eprintln!("Failed to send response back to checkpoint: {}", e);
             e
         })?;
-        thread::sleep(Duration::from_secs(1));
+        thread::sleep(Duration::from_secs(5));
         client.state = CheckpointState::WaitForRfid;
-        send_response(&CheckpointReply::auth_reply(CheckpointState::WaitForRfid), stream)
-        .map_err(|e| {
-            eprintln!("Failed to send response back to checkpoint: {}", e);
-            e
-        })?;
     } else {
         send_response(&response, stream)
         .map_err(|e| {
