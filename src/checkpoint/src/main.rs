@@ -279,6 +279,7 @@ fn main() {
     );
 
     if init_reply == CheckpointReply::error() {
+        lcd.clear();
         eprintln!("Failed to connect to server, exiting");
         exit(1);
     }
@@ -390,6 +391,7 @@ fn main() {
 
                                     if enroll_reply_1 == CheckpointReply::error() {
                                         eprintln!("Failed to connect to server, exiting");
+                                        lcd.clear();
                                         exit(1);
                                     }
 
@@ -452,6 +454,7 @@ fn main() {
                                         rfid_ver,
                                     );
                                     if update_reply_1 == CheckpointReply::error() {
+                                        lcd.clear();
                                         eprintln!("Failed to connect to server, exiting");
                                         exit(1);
                                     }
@@ -466,6 +469,7 @@ fn main() {
                                             rfid_ver,
                                         );
                                         if update_reply_2 == CheckpointReply::error() {
+                                            lcd.clear();
                                             eprintln!("Failed to connect to server, exiting");
                                             exit(1);
                                         }
@@ -521,6 +525,7 @@ fn main() {
                                         );
 
                                         if delete_reply_2 == CheckpointReply::error() {
+                                            lcd.clear();
                                             eprintln!("Failed to connect to server, exiting");
                                             exit(1);
                                         }
@@ -606,6 +611,7 @@ fn main() {
                         );
 
                         if auth_reply == CheckpointReply::error() {
+                            lcd.clear();
                             eprintln!("Failed to connect to server, exiting");
                             exit(1);
                         }
@@ -662,6 +668,7 @@ fn main() {
                         );
 
                         if fingerprint_auth_reply == CheckpointReply::error() {
+                            lcd.clear();
                             eprintln!("Failed to connect to server, exiting");
                             exit(1);
                         }
