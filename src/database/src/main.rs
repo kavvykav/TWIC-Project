@@ -2,8 +2,8 @@
     IMPORTS
 ****************/
 use common::{
-    decrypt_aes, decrypt_string, encrypt_aes, encrypt_string, generate_iv, generate_key,
-    keygen_string, DatabaseReply, DatabaseRequest, Parameters, Role, DATABASE_ADDR,
+    encrypt_string, generate_iv, generate_key, keygen_string, DatabaseReply, DatabaseRequest,
+    Parameters, Role, DATABASE_ADDR,
 };
 use lazy_static::lazy_static;
 use rusqlite::{params, Connection, Result};
@@ -84,7 +84,7 @@ fn initialize_database() -> Result<Connection> {
             fingerprint_ids TEXT NOT NULL,
             role_id INTEGER NOT NULL,
             allowed_locations TEXT NOT NULL,
-            rfid_data TEXT NOT NULL,
+            rfid_data INTEGER NOT NULL,
             FOREIGN KEY (role_id) REFERENCES roles (id)
         )",
         [],
@@ -131,11 +131,11 @@ async fn handle_port_server_request(
                 Ok(_) => {
                     let checkpoint_id = conn.last_insert_rowid() as u32;
                     println!("Added checkpoint to the database! ID is {}", checkpoint_id);
-                    return DatabaseReply::init_reply(checkpoint_id);
+                    DatabaseReply::init_reply(checkpoint_id)
                 }
                 Err(e) => {
                     eprintln!("Issue with adding checkpoint to the database: {}", e);
-                    return DatabaseReply::error();
+                    DatabaseReply::error()
                 }
             }
         }
@@ -151,10 +151,10 @@ async fn handle_port_server_request(
             println!("DEBUG: worker id: {}", req.worker_id.unwrap_or(0));
 
             // If employee does not exist send back an error
-            /*if !employee_exists(&conn, req.worker_id.unwrap()).unwrap_or(false) {
+            if !employee_exists(&conn, req.worker_id.unwrap()).unwrap_or(false) {
                 println!("Worker des not exist");
                 return DatabaseReply::error();
-            }*/
+            }
 
             // Fetch checkpoint data
             let checkpoint_data: Result<(String, String), _> = conn.query_row(
@@ -166,17 +166,17 @@ async fn handle_port_server_request(
             match checkpoint_data {
                 Ok((location, allowed_roles)) => {
                     // Worker details
-                    let worker_data: Result<(String, String, String, u32), _> = conn.query_row(
-                "SELECT employees.fingerprint_ids, employees.allowed_locations, employees.name, roles.id \
+                    let worker_data: Result<(String, String, String, u32, u32), _> = conn.query_row(
+                "SELECT employees.fingerprint_ids, employees.allowed_locations, employees.name, roles.id, employees.rfid_data \
                  FROM employees \
                  JOIN roles ON employees.role_id = roles.id \
                  WHERE employees.id = ?1",
                 params![req.worker_id],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
             );
 
                     match worker_data {
-                        Ok((worker_fingerprint, allowed_locations, name, role_id)) => {
+                        Ok((worker_fingerprint, allowed_locations, name, role_id, rfid_data)) => {
                             // Parse the fingerprint ID from the string
                             let fingerprint_id = worker_fingerprint
                                 .split(':')
@@ -184,7 +184,7 @@ async fn handle_port_server_request(
                                 .and_then(|s| s.trim().trim_matches('}').trim().parse::<u32>().ok())
                                 .unwrap_or(0); // Default to 0 if parsing fails
                                                // Return the authentication reply
-                            return DatabaseReply::auth_reply(
+                            DatabaseReply::auth_reply(
                                 req.checkpoint_id.unwrap_or_default(),
                                 req.worker_id.unwrap_or_default(),
                                 fingerprint_id,
@@ -193,19 +193,20 @@ async fn handle_port_server_request(
                                 location,
                                 allowed_locations,
                                 name,
-                            );
+                                rfid_data,
+                            )
                         }
                         Err(e) => {
                             // Error fetching worker details
                             eprintln!("Error fetching worker details: {}", e);
-                            return DatabaseReply::error();
+                            DatabaseReply::error()
                         }
                     }
                 }
                 Err(e) => {
                     // Error fetching checkpoint details
                     eprintln!("Error fetching checkpoint details: {}", e);
-                    return DatabaseReply::error();
+                    DatabaseReply::error()
                 }
             }
         }
@@ -240,13 +241,11 @@ async fn handle_port_server_request(
                 .unwrap();
             let worker_id = latest_id as u32;
             match result {
-                Ok(id) => {
-                    return DatabaseReply::success(worker_id.into());
-                }
+                Ok(_) => DatabaseReply::success(worker_id.into()),
 
                 Err(e) => {
                     eprintln!("Could not enroll user {}", e);
-                    return DatabaseReply::error();
+                    DatabaseReply::error()
                 }
             }
         }
@@ -259,18 +258,15 @@ async fn handle_port_server_request(
             match result {
                 Ok(affected) => {
                     if affected > 0 {
-                        return DatabaseReply::update_success(
-                            req.location.unwrap(),
-                            req.role_id.unwrap(),
-                        );
+                        DatabaseReply::update_success(req.location.unwrap(), req.role_id.unwrap())
                     } else {
                         println!("Zero affected users");
-                        return DatabaseReply::error();
+                        DatabaseReply::error()
                     }
                 }
                 Err(e) => {
                     eprintln!("An error occured with adding a user: {}", e);
-                    return DatabaseReply::error();
+                    DatabaseReply::error()
                 }
             }
         }
@@ -282,15 +278,15 @@ async fn handle_port_server_request(
             match result {
                 Ok(affected) => {
                     if affected > 0 {
-                        return DatabaseReply::success(0);
+                        DatabaseReply::success(0)
                     } else {
                         println!("Affected users is zero");
-                        return DatabaseReply::error();
+                        DatabaseReply::error()
                     }
                 }
                 Err(e) => {
                     eprintln!("Error with deleting a worker: {}", e);
-                    return DatabaseReply::error();
+                    DatabaseReply::error()
                 }
             }
         }
@@ -311,7 +307,7 @@ async fn handle_port_server_request(
 
             AES_KEY.lock().unwrap().replace(hex::encode(&aes_key_temp));
             IV.lock().unwrap().replace(hex::encode(&iv_temp));
-            return DatabaseReply {
+            DatabaseReply {
                 status: "success".to_string(),
                 checkpoint_id: None,
                 worker_id: None,
@@ -325,11 +321,12 @@ async fn handle_port_server_request(
                 encrypted_aes_key: Some(encrypted_aes_key),
                 encrypted_iv: Some(encrypted_iv),
                 public_key: None,
-            };
+                rfid_data: None,
+            }
         }
         _ => {
             println!("Unknown command");
-            return DatabaseReply::error();
+            DatabaseReply::error()
         }
     }
 }

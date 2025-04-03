@@ -50,7 +50,7 @@ pub enum CheckpointState {
     AuthFailed,
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct CheckpointReply {
     pub status: String,
     pub checkpoint_id: Option<u32>,
@@ -266,6 +266,7 @@ pub struct DatabaseReply {
     pub encrypted_aes_key: Option<String>,
     pub encrypted_iv: Option<String>,
     pub public_key: Option<String>,
+    pub rfid_data: Option<u32>,
 }
 
 impl DatabaseReply {
@@ -284,6 +285,7 @@ impl DatabaseReply {
             encrypted_aes_key: None,
             encrypted_iv: None,
             public_key: None,
+            rfid_data: None,
         }
     }
 
@@ -302,6 +304,7 @@ impl DatabaseReply {
             encrypted_aes_key: None,
             encrypted_iv: None,
             public_key: None,
+            rfid_data: None,
         }
     }
 
@@ -320,6 +323,7 @@ impl DatabaseReply {
             encrypted_aes_key: None,
             encrypted_iv: None,
             public_key: None,
+            rfid_data: None,
         }
     }
     pub fn auth_reply(
@@ -331,6 +335,7 @@ impl DatabaseReply {
         location: String,
         allowed_locations: String,
         worker_name: String,
+        rfid_data: u32,
     ) -> Self {
         DatabaseReply {
             status: "success".to_string(),
@@ -346,6 +351,7 @@ impl DatabaseReply {
             encrypted_aes_key: None,
             encrypted_iv: None,
             public_key: None,
+            rfid_data: Some(rfid_data),
         }
     }
     pub fn init_reply(checkpoint_id: u32) -> Self {
@@ -363,6 +369,7 @@ impl DatabaseReply {
             encrypted_aes_key: None,
             encrypted_iv: None,
             public_key: None,
+            rfid_data: None,
         }
     }
 }
@@ -676,12 +683,6 @@ impl App {
                         .add_modifier(Modifier::REVERSED)
                         .add_modifier(Modifier::UNDERLINED);
                 }
-                let list_item = ListItem::new(field).style(style);
-                let form_list = List::new(vec![list_item]).block(
-                    Block::bordered()
-                        .title("Delete Employee (Enter: edit field, Ctrl+S: submit, Esc: cancel)"),
-                );
-                frame.render_widget(form_list, chunks[1]);
             }
         }
     }
