@@ -806,47 +806,51 @@ fn handle_init_request(
         .clone()
         .ok_or("Allowed roles are missing in request")?;
 
+    // Query central database first (without holding the lock)
+    let db_reply = query_database(DATABASE_ADDR, &request)
+        .map_err(|e| format!("Database query failed: {}", e))?;
+
+    if db_reply.status != "success" {
+        println!("Central database returned an error for INIT request");
+        return send_response(&DatabaseReply::error(), stream);
+    }
+
+    let checkpoint_id = db_reply
+        .checkpoint_id
+        .ok_or("Central database didn't return a checkpoint ID")?;
+
+    println!(
+        "Received checkpoint ID {} from central database",
+        checkpoint_id
+    );
+
+    // Now lock the connection for local DB operations
     let conn = conn.lock().unwrap();
 
-    // Query central database to get/set checkpoint ID
-    let reply = query_database(DATABASE_ADDR, &request)
-        .map(|db_reply| {
-            if db_reply.status == "success" {
-                let checkpoint_id = db_reply.checkpoint_id.unwrap();
-                println!(
-                    "Received checkpoint ID {} from central database",
-                    checkpoint_id
-                );
-                let exists: bool = conn
-                    .query_row(
-                        "SELECT EXISTS(SELECT 1 FROM checkpoints WHERE id = ?)",
-                        params![checkpoint_id],
-                        |row| row.get(0),
-                    )
-                    .unwrap_or(false);
+    // Check if checkpoint exists
+    let exists: bool = conn
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM checkpoints WHERE id = ?)",
+            params![checkpoint_id],
+            |row| row.get(0),
+        )
+        .map_err(|e| format!("Failed to query checkpoint existence: {}", e))?;
 
-                if exists {
-                    println!("Checkpoint '{}' already exists in local database", location);
-                } else {
-                    // Insert new checkpoint
-                    conn.execute(
-                        "INSERT INTO checkpoints (id, location, allowed_roles) VALUES (?1, ?2, ?3)",
-                        params![checkpoint_id, location, allowed_roles],
-                    )
-                    .map_err(|e| format!("Failed to insert checkpoint: {}", e));
+    if exists {
+        println!("Checkpoint '{}' already exists in local database", location);
+    } else {
+        // Insert new checkpoint
+        conn.execute(
+            "INSERT INTO checkpoints (id, location, allowed_roles) VALUES (?1, ?2, ?3)",
+            params![checkpoint_id, location, allowed_roles],
+        )
+        .map_err(|e| format!("Failed to insert checkpoint: {}", e))?;
 
-                    println!("Added new checkpoint '{}' to local database", checkpoint_id);
-                }
-                DatabaseReply::init_reply(checkpoint_id)
-            } else {
-                println!("Central database returned an error for INIT request");
-                DatabaseReply::error()
-            }
-        })
-        .map_err(|e| format!("Database query failed: {}", e));
+        println!("Added new checkpoint '{}' to local database", checkpoint_id);
+    }
 
-    // Send response back to checkpoint
-    send_response(&reply, stream)
+    // Send success response
+    send_response(&DatabaseReply::init_reply(checkpoint_id), stream)
 }
 /*
  * Name: handle_authenticate
