@@ -84,7 +84,7 @@ fn initialize_database() -> Result<Connection> {
             fingerprint_ids TEXT NOT NULL,
             role_id INTEGER NOT NULL,
             allowed_locations TEXT NOT NULL,
-            rfid_data TEXT NOT NULL,
+            rfid_data INTEGER NOT NULL,
             FOREIGN KEY (role_id) REFERENCES roles (id)
         )",
         [],
@@ -166,17 +166,17 @@ async fn handle_port_server_request(
             match checkpoint_data {
                 Ok((location, allowed_roles)) => {
                     // Worker details
-                    let worker_data: Result<(String, String, String, u32), _> = conn.query_row(
-                "SELECT employees.fingerprint_ids, employees.allowed_locations, employees.name, roles.id \
+                    let worker_data: Result<(String, String, String, u32, u32), _> = conn.query_row(
+                "SELECT employees.fingerprint_ids, employees.allowed_locations, employees.name, roles.id, employees.rfid_data \
                  FROM employees \
                  JOIN roles ON employees.role_id = roles.id \
                  WHERE employees.id = ?1",
                 params![req.worker_id],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
             );
 
                     match worker_data {
-                        Ok((worker_fingerprint, allowed_locations, name, role_id)) => {
+                        Ok((worker_fingerprint, allowed_locations, name, role_id, rfid_data)) => {
                             // Parse the fingerprint ID from the string
                             let fingerprint_id = worker_fingerprint
                                 .split(':')
@@ -193,6 +193,7 @@ async fn handle_port_server_request(
                                 location,
                                 allowed_locations,
                                 name,
+                                rfid_data,
                             )
                         }
                         Err(e) => {
@@ -320,6 +321,7 @@ async fn handle_port_server_request(
                 encrypted_aes_key: Some(encrypted_aes_key),
                 encrypted_iv: Some(encrypted_iv),
                 public_key: None,
+                rfid_data: None,
             }
         }
         _ => {

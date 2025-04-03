@@ -421,11 +421,10 @@ fn main() {
                                     role_id,
                                 } => {
                                     let role_id = role_id.parse::<u32>().unwrap_or(0);
-                                    let employee_id = employee_id.parse::<u64>().unwrap_or(0);
 
                                     let update_req = CheckpointRequest::update_req(
                                         checkpoint_id,
-                                        employee_id,
+                                        worker_id,
                                         role_id,
                                         location.clone(),
                                     );
@@ -471,10 +470,9 @@ fn main() {
                                     }
                                 }
                                 Submission::Delete { employee_id } => {
-                                    let employee_id = employee_id.parse::<u64>().unwrap_or(0);
 
                                     let delete_req =
-                                        CheckpointRequest::delete_req(checkpoint_id, employee_id);
+                                        CheckpointRequest::delete_req(checkpoint_id, worker_id);
 
                                     // First admin sends the request
                                     let delete_reply_1 = send_and_receive(
