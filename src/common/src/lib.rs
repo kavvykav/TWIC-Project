@@ -683,12 +683,6 @@ impl App {
                         .add_modifier(Modifier::REVERSED)
                         .add_modifier(Modifier::UNDERLINED);
                 }
-                let list_item = ListItem::new(field).style(style);
-                let form_list = List::new(vec![list_item]).block(
-                    Block::bordered()
-                        .title("Delete Employee (Enter: edit field, Ctrl+S: submit, Esc: cancel)"),
-                );
-                frame.render_widget(form_list, chunks[1]);
             }
         }
     }
