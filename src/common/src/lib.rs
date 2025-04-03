@@ -50,7 +50,7 @@ pub enum CheckpointState {
     AuthFailed,
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct CheckpointReply {
     pub status: String,
     pub checkpoint_id: Option<u32>,

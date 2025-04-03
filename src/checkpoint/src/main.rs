@@ -119,9 +119,7 @@ fn send_and_receive(
         request.worker_id.unwrap_or(0),
         request.checkpoint_id.unwrap_or(0)
     );
-
-    //let mut pending = pending_requests.lock().unwrap();
-    let mut pending = pending_requests.try_lock(); //TRYING NOT TO DEADLOCK. MAY BE TOTALLY UNNEEDED. REPLACED BY WHATS RIGHT ABOVE THIS
+    let mut pending = pending_requests.try_lock();
     if !pending.is_ok() {
         eprintln!("Could not acquire lock, skipping request.");
         return CheckpointReply::error();
@@ -279,6 +277,12 @@ fn main() {
         admin_id_1,
         rfid_ver,
     );
+
+    if init_reply == CheckpointReply::error() {
+        eprintln!("Failed to connect to server, exiting");
+        exit(1);
+    }
+
     println!(
         "DEBUG: checkpoint_id received = {:?}",
         init_reply.checkpoint_id
@@ -384,6 +388,11 @@ fn main() {
                                         rfid_ver,
                                     );
 
+                                    if enroll_reply_1 == CheckpointReply::error() {
+                                        eprintln!("Failed to connect to server, exiting");
+                                        exit(1);
+                                    }
+
                                     if enroll_reply_1.status == "waiting" {
                                         // Second admin approves the request
                                         let enroll_reply_2 = send_and_receive(
@@ -393,6 +402,11 @@ fn main() {
                                             admin_id_2,
                                             rfid_ver,
                                         );
+
+                                        if enroll_reply_2 == CheckpointReply::error() {
+                                            eprintln!("Failed to connect to server, exiting");
+                                            exit(1);
+                                        }
 
                                         if enroll_reply_2.status == "success" {
                                             println!("User enrolled successfully");
@@ -437,6 +451,10 @@ fn main() {
                                         admin_id_1,
                                         rfid_ver,
                                     );
+                                    if update_reply_1 == CheckpointReply::error() {
+                                        eprintln!("Failed to connect to server, exiting");
+                                        exit(1);
+                                    }
 
                                     if update_reply_1.status == "waiting" {
                                         // Second admin approves the request
@@ -447,6 +465,10 @@ fn main() {
                                             admin_id_2,
                                             rfid_ver,
                                         );
+                                        if update_reply_2 == CheckpointReply::error() {
+                                            eprintln!("Failed to connect to server, exiting");
+                                            exit(1);
+                                        }
 
                                         if update_reply_2.status == "success" {
                                             println!("User updated successfully");
@@ -483,6 +505,11 @@ fn main() {
                                         rfid_ver,
                                     );
 
+                                    if delete_reply_1 == CheckpointReply::error() {
+                                        eprintln!("Failed to connect to server, exiting");
+                                        exit(1);
+                                    }
+
                                     if delete_reply_1.status == "waiting" {
                                         // Second admin approves the request
                                         let delete_reply_2 = send_and_receive(
@@ -492,6 +519,11 @@ fn main() {
                                             admin_id_2,
                                             rfid_ver,
                                         );
+
+                                        if delete_reply_2 == CheckpointReply::error() {
+                                            eprintln!("Failed to connect to server, exiting");
+                                            exit(1);
+                                        }
 
                                         if delete_reply_2.status == "success" {
                                             println!("User deleted successfully!");
@@ -573,6 +605,11 @@ fn main() {
                             rfid_ver,
                         );
 
+                        if auth_reply == CheckpointReply::error() {
+                            eprintln!("Failed to connect to server, exiting");
+                            exit(1);
+                        }
+
                         if auth_reply.auth_response == Some(CheckpointState::AuthFailed) {
                             println!("Authentication failed.");
                             #[cfg(feature = "raspberry_pi")]
@@ -623,6 +660,11 @@ fn main() {
                             admin_id_1,
                             rfid_ver,
                         );
+
+                        if fingerprint_auth_reply == CheckpointReply::error() {
+                            eprintln!("Failed to connect to server, exiting");
+                            exit(1);
+                        }
 
                         if fingerprint_auth_reply.auth_response
                             == Some(CheckpointState::AuthFailed)
