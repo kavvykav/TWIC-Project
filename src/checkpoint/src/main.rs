@@ -567,32 +567,6 @@ fn main() {
                             lcd.display_string("Please Scan", LCD_LINE_1);
                         }
 
-<<<<<<< HEAD
-                        let mut worker_id: u64;
-
-                        let mut result = match rfid::get_token_id() {
-                            Ok(val) => {
-                                worker_id = val;
-                            }
-                            Err(e) => {
-                                println!("Error reading RFID: {}", e);
-                                worker_id = 9999999999;
-                            }
-                        };
-                        lcd.clear();
-                        thread::sleep(Duration::from_secs(1));
-                        lcd.display_string("Please Scan", LCD_LINE_1);
-
-                        let rfid_data: u32;
-
-                        let mut result = match rfid::read_rfid() {
-                            Ok(val) => {
-                                rfid_data = val;
-                            }
-                            Err(e) => {
-                                println!("Error reading RFID: {}", e);
-                                rfid_data = 999999;
-=======
                         let (worker_id, rfid_data) = match (rfid::get_token_id(), rfid::read_rfid())
                         {
                             (Ok(w_id), Ok(rfid)) => (w_id, rfid),
@@ -606,7 +580,6 @@ fn main() {
                                     lcd.clear();
                                 }
                                 continue;
->>>>>>> 0efb510f195e402fa841cb2738490667984e9e97
                             }
                         };
 
@@ -632,43 +605,6 @@ fn main() {
                             rfid_ver,
                         );
 
-<<<<<<< HEAD
-                            if let Some(CheckpointState::AuthFailed) = auth_reply.auth_response {
-                                eprintln!("RFID Authentication failed: {:?}", auth_reply); // Debug log
-                                println!("Authentication failed.");
-                                #[cfg(feature = "raspberry_pi")]
-                                {
-                                    lcd.clear();
-                                    lcd.display_string("Access Denied", LCD_LINE_1);
-                                    thread::sleep(Duration::from_secs(5));
-                                    lcd.clear();
-                                }
-                                continue;
-                            } else if let Some(CheckpointState::WaitForFingerprint) = auth_reply.auth_response {
-                                println!("RFID Authentication Succeeded: {:?}", auth_reply);
-                                println!("Please scan your fingerprint");
-                                #[cfg(feature = "raspberry_pi")]
-                                {
-                                    lcd.clear();
-                                    lcd.display_string("Please scan", LCD_LINE_1);
-                                    lcd.display_string("fingerprint", LCD_LINE_2);
-                                    thread::sleep(Duration::from_secs(5));
-                                }
-                            } else {
-                                continue;
-                            }
-                        // Collect fingerprint data
-
-                        let worker_fingerprint: String;
-                        match fingerprint::scan_fingerprint() {
-                            Ok(fingerprint_id) => {
-                                worker_fingerprint = fingerprint_id.to_string();
-                            },
-                            Err(e) => {
-                                worker_fingerprint = "null".to_string();
-                                println!("Error scanning fingerprint: {}", e);
-                            },
-=======
                         if auth_reply == CheckpointReply::error() {
                             eprintln!("Failed to connect to server, exiting");
                             exit(1);
@@ -703,7 +639,6 @@ fn main() {
                                 println!("Error scanning fingerprint: {}", e);
                                 worker_fingerprint = 961.to_string();
                             }
->>>>>>> 0efb510f195e402fa841cb2738490667984e9e97
                         };
 
                         #[cfg(feature = "raspberry_pi")]
@@ -725,10 +660,6 @@ fn main() {
                             admin_id_1,
                             rfid_ver,
                         );
-<<<<<<< HEAD
-                        if let Some(CheckpointState::AuthFailed) =
-                            fingerprint_auth_reply.auth_response
-=======
 
                         if fingerprint_auth_reply == CheckpointReply::error() {
                             eprintln!("Failed to connect to server, exiting");
@@ -737,7 +668,6 @@ fn main() {
 
                         if fingerprint_auth_reply.auth_response
                             == Some(CheckpointState::AuthFailed)
->>>>>>> 0efb510f195e402fa841cb2738490667984e9e97
                         {
                             println!("Authentication failed.");
                             #[cfg(feature = "raspberry_pi")]
@@ -747,12 +677,7 @@ fn main() {
                                 thread::sleep(Duration::from_secs(2));
                                 lcd.clear();
                             }
-<<<<<<< HEAD
-                            continue;
-                        } else if let Some(CheckpointState::AuthSuccessful) = fingerprint_auth_reply.auth_response {
-=======
                         } else if fingerprint_auth_reply.auth_response == Some(CheckpointState::AuthSuccessful) {
->>>>>>> 0efb510f195e402fa841cb2738490667984e9e97
                             println!("Authentication successful");
                             #[cfg(feature = "raspberry_pi")]
                             {
