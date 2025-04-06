@@ -221,8 +221,8 @@ impl CheckpointReply {
 /*********************************************
     PORT SERVER <--> CENTRAL DATABASE
 *********************************************/
-pub const SERVER_ADDR: &str = "127.0.0.1:8080";
-pub const DATABASE_ADDR: &str = "127.0.0.1:3036";
+pub const SERVER_ADDR: &str = "192.168.2.17:8080";
+pub const DATABASE_ADDR: &str = "192.168.2.17:3036";
 
 // Client structure for a port server to manage checkpoints
 #[derive(Clone, Debug)]
