@@ -237,7 +237,7 @@ fn main() {
     };
 
     // Connect to Port Server
-    let mut stream = match TcpStream::connect("127.0.0.1:8080") {
+    let mut stream = match TcpStream::connect("192.168.2.17:8080") {
         Ok(stream) => {
             println!("Connected to Server!");
             #[cfg(feature = "raspberry_pi")]
