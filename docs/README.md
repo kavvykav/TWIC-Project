@@ -100,6 +100,23 @@ Basic Flow:
 
 ![Sequence Diagram](./diagrams/sequence-diagrams/UpdateRoleSequence.png)
 
+### Removing A User
+
+Brief Description: When an employee's contract is terminated, we no longer need
+to keep their data on our database for storage purposes, and removing their entry
+in the database revokes their access.
+
+Precondition: The server manager is already logged in to the server.
+
+Basic Flow:
+
+1. The server manager will load a user's profile.
+2. The server manager will input the desired employee ID to remove.
+3. The database will be updated to remove the employee's entry.
+4. The relevant port servers are notified and updated.
+
+![Sequence Diagram](./diagrams/sequence-diagrams/DeleteEmployeeSequence.png)
+
 ## System Architecture
 
 For our TWIC Access Control system, we opted to use a distributed architecture,
