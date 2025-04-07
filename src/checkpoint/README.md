@@ -1,5 +1,12 @@
 # Checkpoint
 
+## Setup
+
+The checkpoint code runs on a raspberry Pi connected to a fingerprint sensor
+and an RFID sensor as shown in the schematics below.
+
+![RFID Schematic](./RFID_schematic.png)
+
 ## Usage
 
 ### Function

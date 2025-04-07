@@ -4,10 +4,6 @@ The TWIC access control system is a two-factor authentication system for Canadia
 maritime ports, written in Rust. Below you can find instructions for installing
 and using each component of the TWIC system.
 
-> [!IMPORTANT]
-> The checkpoint code must be run on a Raspberry Pi connected to an RFID and
-> fingerprint sensor as shown in the docs.
-
 ## Getting Started
 
 In depth documentation can be found in our [docs](./docs/README.md).
@@ -41,6 +37,10 @@ cargo run
 ```
 
 #### Checkpoint
+
+> [!IMPORTANT]
+> The checkpoint code must be run on a Raspberry Pi connected to an RFID and
+> fingerprint sensor as shown in the instructions.
 
 The code for the Checkpoint is located at src/checkpoint. The checkpoint takes
 command line arguments for the type of checkpoint it is, the roles it allows,
