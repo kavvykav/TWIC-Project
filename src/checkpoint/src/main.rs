@@ -1,7 +1,7 @@
 /****************
     IMPORTS
 ****************/
-use common::{CheckpointReply, CheckpointRequest, CheckpointState, Submission};
+use common::{CheckpointReply, CheckpointRequest, CheckpointState, Submission, SERVER_ADDR};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::env;
@@ -237,7 +237,7 @@ fn main() {
     };
 
     // Connect to Port Server
-    let mut stream = match TcpStream::connect("192.168.2.17:8080") {
+    let mut stream = match TcpStream::connect(SERVER_ADDR) {
         Ok(stream) => {
             println!("Connected to Server!");
             #[cfg(feature = "raspberry_pi")]
@@ -496,7 +496,6 @@ fn main() {
                                     }
                                 }
                                 Submission::Delete { employee_id } => {
-
                                     let delete_req =
                                         CheckpointRequest::delete_req(checkpoint_id, worker_id);
 
@@ -673,8 +672,7 @@ fn main() {
                             exit(1);
                         }
 
-                        if fingerprint_auth_reply.auth_response
-                            == Some(CheckpointState::AuthFailed)
+                        if fingerprint_auth_reply.auth_response == Some(CheckpointState::AuthFailed)
                         {
                             println!("Authentication failed.");
                             #[cfg(feature = "raspberry_pi")]
@@ -684,7 +682,9 @@ fn main() {
                                 thread::sleep(Duration::from_secs(2));
                                 lcd.clear();
                             }
-                        } else if fingerprint_auth_reply.auth_response == Some(CheckpointState::AuthSuccessful) {
+                        } else if fingerprint_auth_reply.auth_response
+                            == Some(CheckpointState::AuthSuccessful)
+                        {
                             println!("Authentication successful");
                             #[cfg(feature = "raspberry_pi")]
                             {
