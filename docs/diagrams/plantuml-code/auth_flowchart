@@ -1,0 +1,14 @@
+@startuml
+
+[*] --> ReceiveAuthenticationRequest
+ReceiveAuthenticationRequest -> CheckEmployeeExists
+CheckEmployeeExists --> Exit : Employee does not exist
+CheckEmployeeExists -> ValidateCheckpoint : Employee exists
+ValidateCheckpoint --> Exit : Invalid Checkpoint
+ValidateCheckpoint -> FetchWorkerData : Valid checkpoint
+FetchWorkerData --> Exit : Error fetching worker details
+FetchWorkerData -> SendWorkerData : Query successful
+SendWorkerData --> [*]
+Exit --> [*]
+
+@enduml

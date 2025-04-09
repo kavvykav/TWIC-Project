@@ -1,0 +1,12 @@
+@startuml
+
+[*] --> ReceiveEnrolmentRequest
+ReceiveEnrolmentRequest -> CheckEmployeeExists
+CheckEmployeeExists --> Exit : Employee exists
+CheckEmployeeExists -> InsertEmployee : Employee does not exist
+InsertEmployee --> Exit : Insertion failed
+InsertEmployee -> SendNewID : Insertion is successful
+SendNewID --> [*]
+Exit --> [*]
+
+@enduml
